@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bigou - Gerador de Imagens Promocionais V2</title>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style id="custom-fonts-style"></style> <!-- Injetar fontes aqui -->
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="toast-container" class="toast-container"></div>
+    
+    <!-- Confirm Modal -->
+    <div class="modal-overlay" id="confirm-modal">
+        <div class="modal-content" style="max-width: 400px; background: white; padding: 24px; border-radius: 16px;">
+            <h3 id="confirm-title" style="margin-bottom: 8px;">Confirmar</h3>
+            <p id="confirm-message" style="color: var(--gray-600); margin-bottom: 24px;">Tem certeza que deseja realizar esta ação?</p>
+            <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                <button class="btn btn-outline" id="confirm-cancel">Cancelar</button>
+                <button class="btn btn-primary" id="confirm-ok" style="background-color: var(--danger); border-color: var(--danger);">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="app-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo-area">
+                <h2 class="brand">Bigou<span>Promos</span></h2>
+            </div>
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="tab-generator">
+                    <i class="ph ph-magic-wand"></i> Gerador
+                </button>
+                <button class="nav-item" data-tab="tab-campaigns">
+                    <i class="ph ph-folder"></i> Campanhas
+                </button>
+                <button class="nav-item" data-tab="tab-templates">
+                    <i class="ph ph-layout"></i> Templates
+                </button>
+                <button class="nav-item" data-tab="tab-config">
+                    <i class="ph ph-gear"></i> Configurações
+                </button>
+                <button class="nav-item" data-tab="tab-review" id="nav-review-btn" disabled>
+                    <i class="ph ph-check-square-offset"></i> Conferência
+                    <span class="badge" id="review-badge" style="display:none;">0</span>
+                </button>
+            </nav>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- TAB: GENERATOR -->
+            <section id="tab-generator" class="tab-content active">
+                <header class="tab-header">
+                    <h1>Gerador em Massa</h1>
+                    <p>Faça upload do CSV de promoções para gerar as artes.</p>
+                </header>
+
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <div class="form-group">
+                            <label>Selecione o Template Base</label>
+                            <select id="select-active-template" class="form-control">
+                                <option value="">Carregando templates...</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Nome da Campanha (Obrigatório)</label>
+                            <input type="text" id="campaign-name" class="form-control" placeholder="Ex: Promos de Fim de Semana - 12/05">
+                        </div>
+
+                        <div class="form-group upload-area" id="csv-dropzone">
+                            <i class="ph ph-file-csv" style="font-size: 3rem; color: var(--primary);"></i>
+                            <h3>Upload do CSV</h3>
+                            <p>Colunas obrigatórias: item_nome, preco_original, preco_promocional, item_imagem, estabelecimento_imagem, disponibilidade_diaria</p>
+                            <input type="file" id="csv-file" accept=".csv" class="hidden-input">
+                            <button class="btn btn-outline" onclick="document.getElementById('csv-file').click()">Selecionar Arquivo</button>
+                        </div>
+
+                        <div id="processing-status" class="status-box hidden">
+                            <div class="spinner"></div>
+                            <p id="processing-text">Processando imagens...</p>
+                            <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+                        </div>
+
+                        <button id="btn-process" class="btn btn-primary btn-block" disabled>Processar CSV e Gerar Imagens</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: CAMPAIGNS -->
+            <section id="tab-campaigns" class="tab-content">
+                <header class="tab-header">
+                    <h1>Gerenciador de Campanhas</h1>
+                    <p>Acesse suas campanhas anteriores para reedição ou exportação.</p>
+                </header>
+
+                <div class="card">
+                    <div class="card-body">
+                        <table class="table" id="campaigns-table">
+                            <thead>
+                                <tr>
+                                    <th>Nome da Campanha</th>
+                                    <th>Data</th>
+                                    <th>Qtd. Artes</th>
+                                    <th width="200">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Injected via JS -->
+                            </tbody>
+                        </table>
+                        <div id="no-campaigns-msg" style="text-align:center; padding: 40px; color:var(--gray-600);">
+                            Nenhuma campanha encontrada. Comece gerando um novo lote no "Gerador".
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: TEMPLATES -->
+            <section id="tab-templates" class="tab-content">
+                <header class="tab-header" style="display:flex; justify-content:space-between;">
+                    <div>
+                        <h1>Editor de Templates</h1>
+                        <p>Gerencie seus layouts de arte. Arraste e dimensione as caixas. Atalhos: Ctrl+C, Ctrl+V, Ctrl+Z suportados.</p>
+                    </div>
+                    <button id="btn-new-template" class="btn btn-primary"><i class="ph ph-plus"></i> Novo Template</button>
+                </header>
+
+                <!-- List of Templates -->
+                <div id="template-list-view" class="card">
+                    <div class="card-body">
+                        <table class="table" id="templates-table">
+                            <thead>
+                                <tr>
+                                    <th>Nome do Template</th>
+                                    <th width="150">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <!-- Injected via JS -->
+                            </tbody>
+                        </table>
+                        <div id="no-templates-msg" style="text-align:center; padding: 40px; color:var(--gray-600);">
+                            Nenhum template criado.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Editor View -->
+                <div id="template-editor-view" class="hidden">
+                    <div class="editor-header mb-4">
+                        <input type="text" id="tpl-name" class="form-control" style="font-size: 1.2rem; font-weight: bold; width: 300px;" placeholder="Nome do Template">
+                    </div>
+
+                    <!-- Feed / Story Switcher -->
+                    <div class="editor-tabs mb-4">
+                        <button class="btn btn-outline active" id="btn-switch-feed">Formato: FEED (1080x1350)</button>
+                        <button class="btn btn-outline" id="btn-switch-story">Formato: STORY (1080x1920)</button>
+                    </div>
+
+                    <div class="template-layout">
+                        <!-- Toolbar -->
+                        <div class="card config-panel">
+                            <h4>Background</h4>
+                            <div class="form-group">
+                                <label>Imagem de Fundo (<span id="bg-format-lbl">Feed</span>)</label>
+                                <label for="bg-upload" class="btn btn-outline" style="width: 100%; display: block; text-align: center; cursor: pointer; border-color: var(--gray-300);">
+                                    <i class="ph ph-upload-simple"></i> Escolher Imagem
+                                </label>
+                                <input type="file" id="bg-upload" accept="image/*" class="hidden-input">
+                            </div>
+
+                            <hr class="my-4">
+                            <h4 class="mb-3">Adicionar Elementos</h4>
+                            <div class="add-elements-grid" style="gap: 12px;">
+                                <button class="btn btn-sm btn-outline add-el-btn mb-2" data-bindkey="itemName" onclick="Editor.addTextElement('[Nome Item]', 'itemName')"><i class="ph ph-text-t"></i> Nome Item</button>
+                                <button class="btn btn-sm btn-outline add-el-btn mb-2" data-bindkey="pricePromo" onclick="Editor.addTextElement('[R$ 99,90]', 'pricePromo')"><i class="ph ph-tag"></i> Preço Promo</button>
+                                <button class="btn btn-sm btn-outline add-el-btn mb-2" data-bindkey="priceOrig" onclick="Editor.addTextElement('[R$ 120,00]', 'priceOrig')"><i class="ph ph-tag-chevron"></i> Preço Original</button>
+                                <button class="btn btn-sm btn-outline add-el-btn mb-2" data-bindkey="daysText" onclick="Editor.addTextElement('[Apenas Segunda]', 'daysText')"><i class="ph ph-calendar"></i> Dias Ativo</button>
+                                
+                                <button class="btn btn-sm btn-outline add-el-btn mb-2" data-bindkey="itemImage" onclick="Editor.addPlaceholder('itemImage', 'square')"><i class="ph ph-image"></i> Foto Produto</button>
+                                <button class="btn btn-sm btn-outline add-el-btn mb-2" data-bindkey="logoImage" onclick="Editor.addPlaceholder('logoImage', 'circle')"><i class="ph ph-user-circle"></i> Logo Parceiro</button>
+                            </div>
+                            
+                            <div id="story-clone-area" class="mt-4 hidden" style="border-top: 1px dashed #ddd; padding-top: 16px;">
+                                <button id="btn-clone-feed" class="btn btn-sm btn-outline" style="width: 100%; border-color: var(--primary); color: var(--primary);" disabled>
+                                    <i class="ph ph-copy"></i> Clonar Elementos do Feed
+                                </button>
+                            </div>
+
+                            <hr>
+                            <!-- Element Properties -->
+                            <div id="element-props" class="hidden">
+                                <h4>Propriedades do Elemento</h4>
+                                <div class="form-group" id="color-wrapper">
+                                    <label>Cor (Hexadecimal)</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <input type="color" id="prop-color" class="form-control" style="width: 50px; padding: 2px;">
+                                        <input type="text" id="prop-color-hex" class="form-control" placeholder="#FFFFFF">
+                                    </div>
+                                </div>
+                                <div class="form-group">
+                                    <label>Fonte</label>
+                                    <select id="prop-font" class="form-control">
+                                        <option value="Inter">Inter (Padrão)</option>
+                                        <!-- Custom fonts injected here -->
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Alinhamento (Texto)</label>
+                                    <div style="display:flex; gap:4px;">
+                                        <button class="btn btn-sm btn-outline align-btn" data-align="left"><i class="ph ph-text-align-left"></i></button>
+                                        <button class="btn btn-sm btn-outline align-btn" data-align="center"><i class="ph ph-text-align-center"></i></button>
+                                        <button class="btn btn-sm btn-outline align-btn" data-align="right"><i class="ph ph-text-align-right"></i></button>
+                                    </div>
+                                </div>
+                                <button class="btn btn-sm btn-outline text-danger mt-4" style="width:100%; border-color:var(--danger); color:var(--danger);" onclick="Editor.deleteSelected()"><i class="ph ph-trash"></i> Excluir Elemento</button>
+                            </div>
+                        </div>
+
+                        <!-- Canvas -->
+                        <div class="canvas-panel">
+                            <canvas id="fabric-canvas"></canvas>
+                        </div>
+                    </div>
+                    
+                    <div style="display:flex; gap: 16px; margin-top: 32px; justify-content: flex-end;">
+                        <button id="btn-cancel-edit" class="btn btn-outline">Cancelar</button>
+                        <button id="btn-save-template" class="btn btn-primary">Salvar Template</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: CONFIGURAÇÕES -->
+            <section id="tab-config" class="tab-content">
+                <header class="tab-header">
+                    <h1>Configurações Globais</h1>
+                    <p>Adicione fontes (.ttf/.otf) e gerencie as fotos genéricas e suas palavras-chave.</p>
+                </header>
+
+                <div class="grid-2">
+                    <!-- Fonts -->
+                    <div class="card">
+                        <div class="card-body">
+                            <h3>Fontes Personalizadas</h3>
+                            <p class="text-muted mb-4">Adicione arquivos de fonte. O nome será extraído do arquivo automaticamente.</p>
+                            
+                            <div class="form-group">
+                                <label>Arquivos (.ttf, .otf)</label>
+                                <input type="file" id="font-file" accept=".ttf,.otf,.woff,.woff2" class="form-control" multiple>
+                            </div>
+                            <button id="btn-add-font" class="btn btn-primary">Adicionar Fontes Selecionadas</button>
+                            
+                            <hr>
+                            <ul id="font-list" class="item-list mt-4">
+                                <!-- Injected via JS -->
+                            </ul>
+                        </div>
+                    </div>
+
+                    <!-- Generics -->
+                    <div class="card">
+                        <div class="card-body">
+                            <div style="display:flex; justify-content:space-between; align-items:center;" class="mb-2">
+                                <h3>Imagens Genéricas e Palavras-chave</h3>
+                                <button class="btn btn-sm btn-outline" id="btn-show-add-cat"><i class="ph ph-plus"></i> Nova Categoria</button>
+                            </div>
+                            
+                            <div id="add-cat-form" class="hidden mb-4 p-3 bg-gray-50 rounded" style="border: 1px dashed var(--primary);">
+                                <h4>Adicionar Categoria Customizada</h4>
+                                <div style="display:flex; gap:8px;">
+                                    <input type="text" id="new-cat-name" class="form-control" placeholder="Ex: Bebidas, Doces...">
+                                    <button class="btn btn-primary" id="btn-add-cat">Adicionar</button>
+                                </div>
+                            </div>
+                            
+                            <p class="text-muted mb-4">Essas imagens serão usadas se o parceiro não tiver foto (célula vazia ou NULL). Especifique as palavras-chave para o sistema identificar pelo nome do item.</p>
+                            
+                            <div id="generics-container">
+                        <button id="btn-save-keywords" class="btn btn-primary mt-4 btn-block">Salvar Palavras-chave</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: REVIEW -->
+            <section id="tab-review" class="tab-content">
+                <header class="tab-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h1>Conferência de Erros <span id="review-campaign-name" style="font-size: 1rem; color: var(--gray-600); font-weight: 500; margin-left: 8px;"></span></h1>
+                        <p>Verifique os alertas e valide as imagens geradas antes de prosseguir.</p>
+                    </div>
+                    <div>
+                        <button class="btn btn-outline" onclick="switchTab('tab-campaign-editor')">Ir para Editor de Campanha <i class="ph ph-arrow-right"></i></button>
+                    </div>
+                </header>
+
+                <div class="filters mb-4">
+                    <button class="btn active" data-filter="alert">Apenas Alertas (<span id="count-alert">0</span>)</button>
+                    <button class="btn btn-outline" data-filter="all">Todas as Artes (<span id="count-all">0</span>)</button>
+                </div>
+
+                <div class="review-grid" id="review-grid"></div>
+            </section>
+
+            <!-- TAB: CAMPAIGN EDITOR -->
+            <section id="tab-campaign-editor" class="tab-content">
+                <header class="tab-header" style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h1>Editor da Campanha <span id="editor-campaign-name" style="font-size: 1rem; color: var(--gray-600); font-weight: 500; margin-left: 8px;"></span></h1>
+                        <p>Gerencie e edite manualmente as artes individuais desta campanha.</p>
+                    </div>
+                    <div>
+                        <button id="btn-download-zip" class="btn btn-primary"><i class="ph ph-download-simple"></i> Baixar ZIP da Campanha</button>
+                    </div>
+                </header>
+
+                <div class="filters mb-4" style="display: flex; gap: 12px; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn active" data-filter="all">Todas</button>
+                        <button class="btn btn-outline" data-filter="edited">Editadas Manualmente</button>
+                    </div>
+                    <div>
+                        <input type="text" id="search-editor" class="form-control" placeholder="Buscar por parceiro ou item..." style="width: 300px;">
+                    </div>
+                </div>
+
+                <div class="review-grid" id="editor-grid"></div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Modal Lightbox -->
+    <div class="modal-overlay" id="preview-modal">
+        <div class="modal-content">
+            <button class="modal-close" id="modal-close">&times;</button>
+            <img src="" id="modal-image" alt="Preview Ampliado">
+        </div>
+    </div>
+
+    <!-- Corrections Modal -->
+    <div class="modal-overlay" id="correction-modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <button class="modal-close" id="correction-modal-close">&times;</button>
+            <h2 class="mb-4">Resolver Pendência</h2>
+            
+            <div class="mb-4 p-3 rounded" id="corr-alert-reason" style="background-color: #fffbeb; color: #b45309; border: 1px solid #fcd34d;">
+                <!-- Erro vai aqui -->
+            </div>
+            
+            <div class="grid-2 mb-4" style="grid-template-columns: 1fr 1fr; gap: 16px;">
+                <div>
+                    <p class="text-sm text-gray-500">Parceiro</p>
+                    <h4 id="corr-partner-name">Nome</h4>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500">Item Procurado</p>
+                    <h4 id="corr-item-name">Item</h4>
+                </div>
+            </div>
+            
+            <hr class="mb-4">
+            
+            <div class="form-group mb-4">
+                <label>Resolver como:</label>
+                <select id="corr-action-type" class="form-control mb-3">
+                    <option value="existing">Vincular a Categoria Existente</option>
+                    <option value="new">Criar Nova Categoria</option>
+                    <option value="specific">Enviar Foto Específica (Apenas esta vez)</option>
+                </select>
+
+                <div id="corr-panel-existing">
+                    <select id="corr-category-select" class="form-control mb-2">
+                        <option value="">Selecione a Categoria...</option>
+                    </select>
+                    <input type="text" id="corr-new-keyword" class="form-control" placeholder="Adicionar nova palavra-chave (Ex: suco, refri)">
+                </div>
+
+                <div id="corr-panel-new" class="hidden">
+                    <input type="text" id="corr-create-cat-name" class="form-control mb-2" placeholder="Nome da Nova Categoria (Ex: Bebidas Frias)">
+                    <input type="text" id="corr-create-cat-kws" class="form-control mb-2" placeholder="Palavras-chave (separadas por vírgula)">
+                    <div class="upload-area" style="padding: 16px;">
+                        <input type="file" id="corr-create-cat-img" accept="image/*" class="hidden-input">
+                        <button class="btn btn-sm btn-outline" onclick="document.getElementById('corr-create-cat-img').click()">Anexar Foto Padrão da Categoria</button>
+                        <p id="corr-create-cat-img-name" style="margin-top:8px; font-size:0.8rem; color:var(--success);"></p>
+                    </div>
+                </div>
+
+                <div id="corr-panel-specific" class="hidden">
+                    <div class="upload-area" style="padding: 16px;">
+                        <input type="file" id="corr-specific-upload" accept="image/*" class="hidden-input">
+                        <button class="btn btn-sm btn-outline" onclick="document.getElementById('corr-specific-upload').click()">Anexar Foto Específica</button>
+                        <p id="corr-upload-name" style="display:none; margin-top:8px; font-size:0.8rem; color:var(--success);"></p>
+                    </div>
+                </div>
+            </div>
+            
+            <div style="display:flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+                <button class="btn btn-primary" id="btn-apply-correction" style="width: 100%;">
+                    <i class="ph ph-check"></i> Aplicar Correção e Regerar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/storageManager.js"></script>
+    <script src="js/csvParser.js"></script>
+    <script src="js/editor.js"></script>
+    <script src="js/canvasRenderer.js"></script>
+    <script src="js/script.js"></script>
+    <!-- Manual Edit Modal -->
+    <div class="modal-overlay" id="manual-edit-modal">
+        <div class="modal-content" style="max-width: 600px; width: 90%;">
+            <header style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 24px;">
+                <h3 style="margin: 0;">Editar Arte Manualmente</h3>
+                <button class="btn btn-sm btn-outline" id="manual-edit-modal-close" style="border:none;"><i class="ph ph-x" style="font-size: 1.2rem;"></i></button>
+            </header>
+
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto; padding-right: 8px;">
+                <p style="color: var(--gray-600); font-size: 0.9rem; margin-bottom: 16px;">
+                    Altere os dados individuais desta arte. Isso reescreverá a arte usando o template da campanha.
+                </p>
+                
+                <div class="form-group">
+                    <label>Nome do Item</label>
+                    <input type="text" id="edit-item-name" class="form-control">
+                </div>
+                
+                <div style="display: flex; gap: 16px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Preço Original (De)</label>
+                        <input type="text" id="edit-price-orig" class="form-control">
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Preço Promocional (Por)</label>
+                        <input type="text" id="edit-price-promo" class="form-control">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Dias Ativos</label>
+                    <input type="text" id="edit-days" class="form-control" placeholder="Ex: Sáb, Dom">
+                </div>
+
+                <div style="display: flex; gap: 16px; margin-top: 16px;">
+                    <div class="form-group" style="flex: 1;">
+                        <label>Imagem do Item</label>
+                        <div class="upload-area" style="padding: 16px; text-align: center;">
+                            <img id="edit-item-img-preview" src="" style="max-height: 80px; max-width: 100%; object-fit: contain; margin-bottom: 8px; display: none;">
+                            <input type="file" id="edit-item-img" accept="image/*" class="hidden-input">
+                            <button class="btn btn-sm btn-outline" onclick="document.getElementById('edit-item-img').click()">Trocar Imagem</button>
+                        </div>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>Logo do Estabelecimento</label>
+                        <div class="upload-area" style="padding: 16px; text-align: center;">
+                            <img id="edit-logo-preview" src="" style="max-height: 80px; max-width: 100%; object-fit: contain; margin-bottom: 8px; display: none;">
+                            <input type="file" id="edit-logo" accept="image/*" class="hidden-input">
+                            <button class="btn btn-sm btn-outline" onclick="document.getElementById('edit-logo').click()">Trocar Logo</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+                <button class="btn btn-primary" id="btn-save-manual-edit"><i class="ph ph-check"></i> Salvar e Regerar Arte</button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

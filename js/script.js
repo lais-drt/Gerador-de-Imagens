@@ -1,0 +1,917 @@
+document.addEventListener('DOMContentLoaded', async () => {
+    // 1. Toast System
+    window.showToast = (title, message, type = 'success') => {
+        const container = document.getElementById('toast-container');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        
+        const icon = type === 'success' ? 'ph-check-circle' : 'ph-x-circle';
+        
+        toast.innerHTML = `
+            <i class="ph ${icon} toast-icon"></i>
+            <div class="toast-content">
+                <div class="toast-title">${title}</div>
+                <div class="toast-message">${message}</div>
+            </div>
+        `;
+        
+        container.appendChild(toast);
+        
+        // Trigger animation
+        setTimeout(() => toast.classList.add('show'), 10);
+        
+        // Auto remove
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 400);
+        }, 4000);
+    };
+
+    window.showConfirm = (title, message, onConfirm) => {
+        const modal = document.getElementById('confirm-modal');
+        document.getElementById('confirm-title').innerText = title;
+        document.getElementById('confirm-message').innerText = message;
+        modal.classList.add('active');
+        
+        const okBtn = document.getElementById('confirm-ok');
+        const cancelBtn = document.getElementById('confirm-cancel');
+        
+        const close = () => modal.classList.remove('active');
+        
+        okBtn.onclick = () => {
+            onConfirm();
+            close();
+        };
+        
+        cancelBtn.onclick = close;
+    };
+
+    await window.StorageManager.init();
+    if (window.Editor) window.Editor.init();
+
+    // 2. Tabs Logic
+    const navItems = document.querySelectorAll('.nav-item');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    function switchTab(tabId) {
+        navItems.forEach(item => {
+            if (item.dataset.tab === tabId) item.classList.add('active');
+            else item.classList.remove('active');
+        });
+        tabContents.forEach(content => {
+            if (content.id === tabId) content.classList.add('active');
+            else content.classList.remove('active');
+        });
+    }
+
+    navItems.forEach(item => item.addEventListener('click', () => switchTab(item.dataset.tab)));
+
+    // 3. Load Configs
+    async function loadConfigs() {
+        const fonts = await window.StorageManager.getFonts();
+        const list = document.getElementById('font-list');
+        const select = document.getElementById('prop-font');
+        list.innerHTML = '';
+        select.innerHTML = '<option value="Inter">Inter (Padrão)</option>';
+        
+        fonts.forEach(f => {
+            const li = document.createElement('li');
+            li.innerHTML = `<span>${f.name}</span> <button class="btn btn-sm btn-outline text-danger" onclick="deleteFont('${f.id}')">X</button>`;
+            list.appendChild(li);
+
+            const opt = document.createElement('option');
+            opt.value = f.name;
+            opt.innerText = f.name;
+            select.appendChild(opt);
+        });
+
+        const gens = await window.StorageManager.getGenerics();
+        const keys = await window.StorageManager.getKeywords();
+        const cats = await window.StorageManager.getCategories();
+        const container = document.getElementById('generics-container');
+        container.innerHTML = '';
+
+        cats.forEach((catObj, index) => {
+            const catId = catObj.id;
+            const imgSrc = gens[catId] || '';
+            const kw = keys[catId] || '';
+
+            const div = document.createElement('div');
+            div.className = 'generic-item';
+            div.innerHTML = `
+                <div class="generic-info">
+                    <h4>${catObj.name}</h4>
+                    <input type="text" id="kw_${catId}" class="form-control" style="margin-top: 8px;" value="${kw}" placeholder="Palavras-chave (separadas por vírgula)">
+                </div>
+                <div class="generic-upload">
+                    <img id="preview-gen-${catId}" src="${imgSrc}" alt="Sem Imagem" class="gen-preview">
+                    <input type="file" id="file-gen-${catId}" accept="image/*" class="hidden-input">
+                    <button class="btn btn-sm btn-outline" onclick="document.getElementById('file-gen-${catId}').click()">Substituir</button>
+                </div>
+            `;
+            container.appendChild(div);
+            if(index < cats.length - 1) container.appendChild(document.createElement('hr'));
+
+            const fileInput = div.querySelector(`#file-gen-${catId}`);
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if(!file) return;
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                    await window.StorageManager.saveGeneric(catId, ev.target.result);
+                    div.querySelector(`#preview-gen-${catId}`).src = ev.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        });
+    }
+    document.getElementById('btn-save-keywords').addEventListener('click', async () => {
+        const cats = await window.StorageManager.getCategories();
+        for (let cat of cats) {
+            const el = document.getElementById('kw_' + cat.id);
+            if (el) {
+                await window.StorageManager.saveKeyword(cat.id, el.value);
+            }
+        }
+        showToast('Sucesso', 'Palavras-chave salvas com sucesso!');
+    });
+
+    document.getElementById('btn-show-add-cat').addEventListener('click', () => {
+        document.getElementById('add-cat-form').classList.toggle('hidden');
+    });
+
+    document.getElementById('btn-add-cat').addEventListener('click', async () => {
+        const nameInput = document.getElementById('new-cat-name');
+        const name = nameInput.value.trim();
+        if (!name) return showToast('Aviso', 'Digite um nome para a categoria.', 'error');
+        
+        await window.StorageManager.addCategory(name);
+        nameInput.value = '';
+        document.getElementById('add-cat-form').classList.add('hidden');
+        loadConfigs();
+        showToast('Sucesso', 'Categoria adicionada! Você já pode inserir as palavras-chave e a imagem padrão dela.');
+    });
+
+    window.deleteFont = async (id) => {
+        showConfirm('Excluir Fonte', 'Tem certeza que deseja excluir esta fonte?', async () => {
+            await window.StorageManager.deleteFont(id);
+            loadConfigs();
+            showToast('Sucesso', 'Fonte excluída!');
+        });
+    };
+
+    document.getElementById('btn-add-font').addEventListener('click', async () => {
+        const files = document.getElementById('font-file').files;
+        if (!files.length) return showToast('Aviso', 'Selecione os arquivos de fonte.', 'error');
+        
+        for(let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const name = file.name.split('.')[0];
+            
+            await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    await window.StorageManager.saveFont(name, e.target.result);
+                    resolve();
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+        
+        showToast('Sucesso', 'Fontes adicionadas!');
+        document.getElementById('font-file').value = '';
+        loadConfigs();
+    });
+
+    // 4. Templates
+    async function loadTemplates() {
+        const templates = await window.StorageManager.getTemplates();
+        
+        const tbody = document.querySelector('#templates-table tbody');
+        tbody.innerHTML = '';
+        if (templates.length === 0) {
+            document.getElementById('no-templates-msg').style.display = 'block';
+            document.getElementById('templates-table').style.display = 'none';
+        } else {
+            document.getElementById('no-templates-msg').style.display = 'none';
+            document.getElementById('templates-table').style.display = 'table';
+            templates.forEach(t => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${t.name}</strong></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline" onclick="editTemplate('${t.id}')">Editar</button>
+                        <button class="btn btn-sm btn-outline text-danger" onclick="deleteTemplate('${t.id}')">Excluir</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        const select = document.getElementById('select-active-template');
+        select.innerHTML = '<option value="">Selecione um template...</option>';
+        templates.forEach(t => {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.innerText = t.name;
+            select.appendChild(opt);
+        });
+    }
+
+    window.editTemplate = async (id) => {
+        const templates = await window.StorageManager.getTemplates();
+        const t = templates.find(x => x.id === id);
+        if(t) {
+            document.getElementById('template-list-view').classList.add('hidden');
+            document.getElementById('template-editor-view').classList.remove('hidden');
+            window.Editor.loadTemplate(t);
+        }
+    };
+
+    window.deleteTemplate = async (id) => {
+        showConfirm('Excluir Template', 'Tem certeza que deseja excluir este template?', async () => {
+            await window.StorageManager.deleteTemplate(id);
+            loadTemplates();
+            showToast('Sucesso', 'Template excluído com sucesso!');
+        });
+    };
+
+    document.getElementById('btn-new-template').addEventListener('click', () => {
+        document.getElementById('template-list-view').classList.add('hidden');
+        document.getElementById('template-editor-view').classList.remove('hidden');
+        window.Editor.loadTemplate({ id: null, name: '' });
+    });
+
+    document.getElementById('btn-cancel-edit').addEventListener('click', () => {
+        document.getElementById('template-list-view').classList.remove('hidden');
+        document.getElementById('template-editor-view').classList.add('hidden');
+    });
+
+    document.getElementById('btn-save-template').addEventListener('click', async () => {
+        const tpl = window.Editor.getTemplateToSave();
+        await window.StorageManager.saveTemplate(tpl);
+        showToast('Sucesso', 'Template Salvo!');
+        document.getElementById('template-list-view').classList.remove('hidden');
+        document.getElementById('template-editor-view').classList.add('hidden');
+        loadTemplates();
+    });
+
+    // Modal Lightbox Logic
+    const modal = document.getElementById('preview-modal');
+    const modalImg = document.getElementById('modal-image');
+    document.getElementById('modal-close').addEventListener('click', () => modal.classList.remove('active'));
+    modal.addEventListener('click', (e) => {
+        if(e.target === modal) modal.classList.remove('active');
+    });
+
+    window.openModal = (src) => {
+        modalImg.src = src;
+        modal.classList.add('active');
+    };
+
+    // 5. Generator
+    const csvFileInput = document.getElementById('csv-file');
+    const btnProcess = document.getElementById('btn-process');
+    const statusBox = document.getElementById('processing-status');
+    const statusText = document.getElementById('processing-text');
+    const progressFill = document.getElementById('progress-fill');
+    
+    let parsedData = [];
+    let generatedResults = [];
+    let activeCampaignId = null;
+
+    csvFileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        try {
+            const generics = await window.StorageManager.getGenerics();
+            const keywords = await window.StorageManager.getKeywords();
+            
+            parsedData = await window.CsvParser.parse(file, generics, keywords);
+            btnProcess.disabled = false;
+            btnProcess.innerText = `Processar ${parsedData.length} parceiros`;
+            document.querySelector('#csv-dropzone h3').innerText = file.name;
+        } catch (err) {
+            showToast('Erro', 'Erro ao ler o arquivo CSV. Verifique o console.', 'error');
+            console.error(err);
+        }
+    });
+
+    btnProcess.addEventListener('click', async () => {
+        const campaignName = document.getElementById('campaign-name').value.trim();
+        if(!campaignName) return showToast('Aviso', 'Informe um nome para a campanha.', 'error');
+
+        const selectedTplId = document.getElementById('select-active-template').value;
+        if(!selectedTplId) return showToast('Aviso', 'Selecione um template base.', 'error');
+        if (!parsedData.length) return;
+
+        const templates = await window.StorageManager.getTemplates();
+        const activeTpl = templates.find(x => x.id === selectedTplId);
+
+        btnProcess.disabled = true;
+        statusBox.classList.remove('hidden');
+        generatedResults = [];
+        
+        const total = parsedData.length;
+        
+        for (let i = 0; i < total; i++) {
+            const row = parsedData[i];
+            statusText.innerText = `Gerando ${i+1} de ${total}: ${row.partnerName}...`;
+            progressFill.style.width = `${((i) / total) * 100}%`;
+
+            try {
+                const feedUrl = await window.CanvasRenderer.generateImage(row, activeTpl.feed, true);
+                const storyUrl = await window.CanvasRenderer.generateImage(row, activeTpl.story, false);
+                
+                generatedResults.push({
+                    rowData: row,
+                    feedDataUrl: feedUrl,
+                    storyDataUrl: storyUrl
+                });
+            } catch (err) {
+                console.error('Erro ao gerar imagem para', row, err);
+                row.alert = row.alert ? row.alert + " | " + err : String(err);
+                generatedResults.push({
+                    rowData: row,
+                    feedDataUrl: null,
+                    storyDataUrl: null
+                });
+            }
+        }
+
+        progressFill.style.width = '100%';
+        statusText.innerText = 'Geração concluída! Salvando campanha...';
+
+        const newCampaign = await window.StorageManager.saveCampaign({
+            name: campaignName,
+            templateId: selectedTplId,
+            results: generatedResults,
+            parsedData: parsedData
+        });
+        
+        activeCampaignId = newCampaign.id;
+        document.getElementById('review-campaign-name').innerText = `- ${campaignName}`;
+        
+        loadCampaigns();
+
+        statusText.innerText = 'Campanha salva! Vá para a aba de Conferência.';
+        showToast('Sucesso', 'Campanha gerada e salva com sucesso!');
+        
+        document.getElementById('nav-review-btn').disabled = false;
+        renderReviewGrid();
+        setTimeout(() => switchTab('tab-review'), 1000);
+    });
+
+    function renderReviewGrid(filter = 'all') {
+        const grid = document.getElementById('review-grid');
+        grid.innerHTML = '';
+        
+        let successCount = 0;
+        let alertCount = 0;
+
+        generatedResults.forEach((result, index) => {
+            const row = result.rowData;
+            const hasAlert = !!row.alert;
+            
+            if (hasAlert) alertCount++;
+            else successCount++;
+
+            if (filter === 'success' && hasAlert) return;
+            if (filter === 'alert' && !hasAlert) return;
+
+            const card = document.createElement('div');
+            card.className = 'review-card';
+
+            const badgeCls = hasAlert ? 'badge-alert' : (row.usedGeneric ? 'badge-alert' : 'badge-success');
+            const badgeTxt = hasAlert ? 'Alerta' : (row.usedGeneric ? 'Usou Genérica' : 'Sucesso');
+
+            const fSrc = result.feedDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
+            const sSrc = result.storyDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
+
+            card.innerHTML = `
+                <span class="review-badge ${badgeCls}">${badgeTxt}</span>
+                <div class="dual-preview">
+                    <img src="${fSrc}" alt="Feed" loading="lazy" onclick="openModal('${fSrc}')">
+                    <img src="${sSrc}" alt="Story" loading="lazy" onclick="openModal('${sSrc}')">
+                </div>
+                <div class="review-info">
+                    <h4>${row.partnerName}</h4>
+                    <p>Item: ${row.itemName || 'Sem nome'}</p>
+                    ${hasAlert ? `<p style="color:var(--danger); font-size: 0.75rem; margin-top:4px;">${row.alert}</p>` : ''}
+                    ${hasAlert ? `<button class="btn btn-sm btn-outline mt-2" style="border-color:var(--warning); color:var(--warning);" onclick="window.openCorrectionModal(${index})">Resolver Pendência</button>` : ''}
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+
+        document.getElementById('count-all').innerText = generatedResults.length;
+        document.getElementById('count-success').innerText = successCount;
+        document.getElementById('count-alert').innerText = alertCount;
+        
+        const badge = document.getElementById('review-badge');
+        badge.innerText = alertCount;
+        badge.style.display = alertCount > 0 ? 'inline-block' : 'none';
+        if(alertCount > 0) badge.style.backgroundColor = 'var(--danger)';
+        else badge.style.backgroundColor = 'var(--primary)';
+    }
+
+    document.querySelectorAll('.filters .btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            document.querySelectorAll('.filters .btn').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            renderReviewGrid(e.target.dataset.filter);
+        });
+    });
+
+    // Corrections Modal Logic
+    window.openCorrectionModal = async (index) => {
+        const result = generatedResults[index];
+        const row = result.rowData;
+
+        document.getElementById('corr-alert-reason').innerText = row.alert;
+        document.getElementById('corr-partner-name').innerText = row.partnerName;
+        document.getElementById('corr-item-name').innerText = row.itemName || 'N/A';
+        
+        const select = document.getElementById('corr-category-select');
+        select.innerHTML = '<option value="">Selecione...</option>';
+        const cats = await window.StorageManager.getCategories();
+        cats.forEach(c => {
+            const opt = document.createElement('option');
+            opt.value = c.id;
+            opt.innerText = c.name;
+            select.appendChild(opt);
+        });
+
+        document.getElementById('corr-new-keyword').value = '';
+        document.getElementById('corr-specific-upload').value = '';
+        document.getElementById('corr-upload-name').style.display = 'none';
+
+        document.getElementById('corr-action-type').value = 'existing';
+        document.getElementById('corr-panel-existing').classList.remove('hidden');
+        document.getElementById('corr-panel-new').classList.add('hidden');
+        document.getElementById('corr-panel-specific').classList.add('hidden');
+
+        document.getElementById('correction-modal').dataset.activeIndex = index;
+        document.getElementById('correction-modal').classList.add('active');
+    };
+
+    document.getElementById('corr-action-type').addEventListener('change', (e) => {
+        const val = e.target.value;
+        document.getElementById('corr-panel-existing').classList.toggle('hidden', val !== 'existing');
+        document.getElementById('corr-panel-new').classList.toggle('hidden', val !== 'new');
+        document.getElementById('corr-panel-specific').classList.toggle('hidden', val !== 'specific');
+    });
+
+    document.getElementById('corr-specific-upload').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            document.getElementById('corr-upload-name').innerText = file.name;
+            document.getElementById('corr-upload-name').style.display = 'block';
+        }
+    });
+
+    document.getElementById('corr-create-cat-img').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            document.getElementById('corr-create-cat-img-name').innerText = file.name;
+        }
+    });
+
+    document.getElementById('correction-modal-close').addEventListener('click', () => {
+        document.getElementById('correction-modal').classList.remove('active');
+    });
+
+    document.getElementById('btn-apply-correction').addEventListener('click', async () => {
+        const modal = document.getElementById('correction-modal');
+        const index = modal.dataset.activeIndex;
+        if (index === undefined) return;
+
+        const result = generatedResults[index];
+        const row = result.rowData;
+        const btn = document.getElementById('btn-apply-correction');
+
+        const actionType = document.getElementById('corr-action-type').value;
+
+        let catId = null;
+        let specificFile = null;
+        let keyword = '';
+
+        if (actionType === 'existing') {
+            catId = document.getElementById('corr-category-select').value;
+            keyword = document.getElementById('corr-new-keyword').value.trim();
+            if (!catId) return showToast('Aviso', 'Selecione uma categoria existente.', 'error');
+        } else if (actionType === 'new') {
+            const newCatName = document.getElementById('corr-create-cat-name').value.trim();
+            keyword = document.getElementById('corr-create-cat-kws').value.trim();
+            const newCatImgFile = document.getElementById('corr-create-cat-img').files[0];
+            
+            if (!newCatName) return showToast('Aviso', 'Informe o nome da nova categoria.', 'error');
+            if (!newCatImgFile) return showToast('Aviso', 'Anexe uma foto padrão para a nova categoria.', 'error');
+
+            catId = await window.StorageManager.addCategory(newCatName);
+            const base64Img = await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.readAsDataURL(newCatImgFile);
+            });
+            await window.StorageManager.saveGeneric(catId, base64Img);
+            
+            // Re-load configs quietly to update memory
+            loadConfigs();
+            
+        } else if (actionType === 'specific') {
+            specificFile = document.getElementById('corr-specific-upload').files[0];
+            if (!specificFile) return showToast('Aviso', 'Faça o upload de uma foto específica.', 'error');
+        }
+
+        btn.disabled = true;
+        btn.innerText = 'Processando...';
+
+        try {
+            if (specificFile) {
+                const base64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.readAsDataURL(specificFile);
+                });
+                row.itemImage = base64; 
+            } else if (catId) {
+                const gens = await window.StorageManager.getGenerics();
+                const genBase64 = gens[catId];
+                if (!genBase64) {
+                    throw new Error('A categoria selecionada não possui uma imagem padrão salva.');
+                }
+                
+                row.itemImage = genBase64;
+
+                if (keyword) {
+                    const keys = await window.StorageManager.getKeywords();
+                    let currentKeys = keys[catId] || '';
+                    const newKeys = currentKeys ? currentKeys + ', ' + keyword : keyword;
+                    await window.StorageManager.saveKeyword(catId, newKeys);
+                }
+            }
+
+            const selectedTplId = document.getElementById('select-active-template').value;
+            const templates = await window.StorageManager.getTemplates();
+            const activeTpl = templates.find(x => x.id === selectedTplId);
+
+            delete row.alert; 
+            row.usedGeneric = !!catId; 
+
+            const feedPromise = activeTpl.feed && activeTpl.feed.objects && activeTpl.feed.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, activeTpl.feed, true) 
+                : Promise.resolve(null);
+            
+            const storyPromise = activeTpl.story && activeTpl.story.objects && activeTpl.story.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, activeTpl.story, false) 
+                : Promise.resolve(null);
+
+            const [fImg, sImg] = await Promise.all([feedPromise, storyPromise]);
+            
+            result.feedDataUrl = fImg;
+            result.storyDataUrl = sImg;
+
+            if (activeCampaignId) {
+                const camp = await window.StorageManager.getCampaign(activeCampaignId);
+                if(camp) {
+                    camp.results = generatedResults;
+                    await window.StorageManager.saveCampaign(camp);
+                }
+            }
+
+            modal.classList.remove('active');
+            renderReviewGrid(document.querySelector('.filters .btn.active').dataset.filter);
+            
+        } catch (e) {
+            console.error(e);
+            showToast('Erro', e.message || 'Erro ao aplicar correção.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="ph ph-check"></i> Aplicar Correção e Regerar';
+        }
+    });
+
+    document.getElementById('btn-download-zip').addEventListener('click', async () => {
+        if (!generatedResults.length) return;
+        
+        const btn = document.getElementById('btn-download-zip');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<i class="ph ph-spinner ph-spin"></i> Compactando...';
+        btn.disabled = true;
+
+        const zip = new JSZip();
+        let savedCount = 0;
+
+        const campaignNameStr = document.getElementById('review-campaign-name').innerText.replace('- ', '').trim() || 'Campanha';
+        const safeCampaignName = campaignNameStr.replace(/[^a-z0-9_-]/gi, '_');
+        
+        const rootFolder = zip.folder(safeCampaignName);
+        const exportsFeed = rootFolder.folder('exports').folder('feed');
+        const exportsStory = rootFolder.folder('exports').folder('story');
+
+        generatedResults.forEach(res => {
+            if (res.rowData.alert && !res.feedDataUrl) return; 
+            
+            const safePartnerName = res.rowData.partnerName.replace(/[^a-z0-9_-]/gi, '_');
+
+            if (res.feedDataUrl) {
+                const feedBase64 = res.feedDataUrl.split(',')[1];
+                exportsFeed.file(`${safePartnerName}.png`, feedBase64, {base64: true});
+            }
+            if (res.storyDataUrl) {
+                const storyBase64 = res.storyDataUrl.split(',')[1];
+                exportsStory.file(`${safePartnerName}.png`, storyBase64, {base64: true});
+            }
+            savedCount++;
+        });
+
+        if (savedCount === 0) {
+            showToast('Aviso', 'Não há imagens válidas para baixar.', 'error');
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+            return;
+        }
+
+        if (activeCampaignId) {
+            const camp = await window.StorageManager.getCampaign(activeCampaignId);
+            if (camp) {
+                rootFolder.file('metadata.json', JSON.stringify({
+                    id: camp.id,
+                    name: camp.name,
+                    createdAt: camp.createdAt,
+                    templateId: camp.templateId,
+                    totalItems: savedCount
+                }, null, 2));
+                
+                if (camp.parsedData && window.Papa) {
+                    rootFolder.folder('csv').file('dados_originais.csv', window.Papa.unparse(camp.parsedData));
+                }
+            }
+        }
+
+        zip.generateAsync({type: "blob"}).then(function(content) {
+            saveAs(content, `${safeCampaignName}.zip`);
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        });
+    });
+
+    // 6. Campaigns Functions
+    async function loadCampaigns() {
+        const campaigns = await window.StorageManager.getCampaigns();
+        const tbody = document.querySelector('#campaigns-table tbody');
+        tbody.innerHTML = '';
+        if (campaigns.length === 0) {
+            document.getElementById('no-campaigns-msg').style.display = 'block';
+            document.getElementById('campaigns-table').style.display = 'none';
+        } else {
+            document.getElementById('no-campaigns-msg').style.display = 'none';
+            document.getElementById('campaigns-table').style.display = 'table';
+            
+            const templates = await window.StorageManager.getTemplates();
+            
+            campaigns.forEach(c => {
+                const tr = document.createElement('tr');
+                const d = new Date(c.createdAt);
+                tr.innerHTML = `
+                    <td><strong>${c.name}</strong></td>
+                    <td>${d.toLocaleDateString()} ${d.toLocaleTimeString()}</td>
+                    <td>${c.totalItems}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline" onclick="openCampaign('${c.id}')">Abrir</button>
+                        <button class="btn btn-sm btn-outline text-danger" onclick="deleteCampaign('${c.id}')">Excluir</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+    }
+
+    window.openCampaign = async (id) => {
+        const camp = await window.StorageManager.getCampaign(id);
+        if(camp) {
+            activeCampaignId = camp.id;
+            generatedResults = camp.results || [];
+            parsedData = camp.parsedData || [];
+            document.getElementById('editor-campaign-name').innerText = `- ${camp.name}`;
+            document.getElementById('review-campaign-name').innerText = `- ${camp.name}`;
+            
+            // Switch to Campaign Editor Tab
+            switchTab('tab-campaign-editor');
+            renderEditorGrid();
+        }
+    };
+
+    // --- Campaign Editor Logic ---
+    function renderEditorGrid(filter = 'all', searchQuery = '') {
+        const grid = document.getElementById('editor-grid');
+        grid.innerHTML = '';
+        
+        const query = searchQuery.toLowerCase();
+
+        generatedResults.forEach((result, index) => {
+            const row = result.rowData;
+            const isEdited = !!row.isManuallyEdited;
+
+            if (filter === 'edited' && !isEdited) return;
+
+            const partnerNameLower = (row.partnerName || '').toLowerCase();
+            const itemNameLower = (row.itemName || '').toLowerCase();
+            if (query && !partnerNameLower.includes(query) && !itemNameLower.includes(query)) return;
+
+            const card = document.createElement('div');
+            card.className = 'review-card';
+
+            const badgeCls = isEdited ? 'badge-alert' : 'badge-success'; // Using alert color (yellow) for edited
+            const badgeTxt = isEdited ? 'Editada Manualmente' : 'Original';
+            
+            // Optional: Hide badge if not edited for cleaner UI? Let's show "Original" as success.
+            const badgeHtml = `<span class="review-badge ${badgeCls}" style="${isEdited ? 'background-color: var(--warning); color: #fff;' : ''}">${badgeTxt}</span>`;
+
+            const fSrc = result.feedDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
+            const sSrc = result.storyDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
+
+            card.innerHTML = `
+                ${badgeHtml}
+                <div class="dual-preview">
+                    <img src="${fSrc}" alt="Feed" loading="lazy" onclick="openModal('${fSrc}')">
+                    <img src="${sSrc}" alt="Story" loading="lazy" onclick="openModal('${sSrc}')">
+                </div>
+                <div class="review-info">
+                    <h4>${row.partnerName}</h4>
+                    <p>Item: ${row.itemName || 'Sem nome'}</p>
+                    <button class="btn btn-sm btn-outline mt-2" onclick="window.openManualEditModal(${index})"><i class="ph ph-pencil-simple"></i> Editar Arte</button>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    document.querySelectorAll('#tab-campaign-editor .filters .btn').forEach(btn => {
+        if(btn.dataset.filter) {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('#tab-campaign-editor .filters .btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+                renderEditorGrid(e.target.dataset.filter, document.getElementById('search-editor').value);
+            });
+        }
+    });
+
+    document.getElementById('search-editor').addEventListener('input', (e) => {
+        const filter = document.querySelector('#tab-campaign-editor .filters .btn.active').dataset.filter;
+        renderEditorGrid(filter, e.target.value);
+    });
+
+    // Manual Edit Modal Logic
+    window.openManualEditModal = (index) => {
+        const row = generatedResults[index].rowData;
+        document.getElementById('manual-edit-modal').dataset.activeIndex = index;
+        
+        document.getElementById('edit-item-name').value = row.itemName || '';
+        document.getElementById('edit-price-orig').value = row.priceOriginal || row.preco_original || '';
+        document.getElementById('edit-price-promo').value = row.pricePromo || row.preco_promocional || '';
+        document.getElementById('edit-days').value = row.daysActive || row.disponibilidade_diaria || '';
+        
+        document.getElementById('edit-item-img').value = '';
+        document.getElementById('edit-logo').value = '';
+        
+        const itemPreview = document.getElementById('edit-item-img-preview');
+        if(row.itemImage) { itemPreview.src = row.itemImage; itemPreview.style.display = 'block'; }
+        else { itemPreview.style.display = 'none'; }
+        
+        const logoPreview = document.getElementById('edit-logo-preview');
+        if(row.estabelecimentoImage) { logoPreview.src = row.estabelecimentoImage; logoPreview.style.display = 'block'; }
+        else { logoPreview.style.display = 'none'; }
+
+        document.getElementById('manual-edit-modal').classList.add('active');
+    };
+
+    const handleEditImgChange = (inputId, previewId) => {
+        document.getElementById(inputId).addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if(file) {
+                const reader = new FileReader();
+                reader.onload = ev => {
+                    const preview = document.getElementById(previewId);
+                    preview.src = ev.target.result;
+                    preview.style.display = 'block';
+                    preview.dataset.base64 = ev.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+    };
+    handleEditImgChange('edit-item-img', 'edit-item-img-preview');
+    handleEditImgChange('edit-logo', 'edit-logo-preview');
+
+    document.getElementById('manual-edit-modal-close').addEventListener('click', () => {
+        document.getElementById('manual-edit-modal').classList.remove('active');
+    });
+
+    document.getElementById('btn-save-manual-edit').addEventListener('click', async () => {
+        const modal = document.getElementById('manual-edit-modal');
+        const index = modal.dataset.activeIndex;
+        if (index === undefined) return;
+        
+        const result = generatedResults[index];
+        const row = result.rowData;
+        const btn = document.getElementById('btn-save-manual-edit');
+
+        // Extract values with backwards compatibility
+        const valItemName = document.getElementById('edit-item-name').value.trim();
+        row.itemName = valItemName;
+        row.item_nome = valItemName;
+        
+        const valPriceOrig = document.getElementById('edit-price-orig').value.trim();
+        row.priceOrig = valPriceOrig;
+        row.priceOriginal = valPriceOrig; 
+        row.preco_original = valPriceOrig; 
+        
+        const valPricePromo = document.getElementById('edit-price-promo').value.trim();
+        row.pricePromo = valPricePromo;
+        row.preco_promocional = valPricePromo;
+        
+        const valDays = document.getElementById('edit-days').value.trim();
+        row.daysText = valDays;
+        row.daysActive = valDays;
+        row.disponibilidade_diaria = valDays;
+        
+        const itemPreview = document.getElementById('edit-item-img-preview');
+        if(itemPreview.dataset.base64) {
+            row.itemImage = itemPreview.dataset.base64;
+            row.item_imagem = itemPreview.dataset.base64;
+        }
+        
+        const logoPreview = document.getElementById('edit-logo-preview');
+        if(logoPreview.dataset.base64) {
+            row.logoImage = logoPreview.dataset.base64;
+            row.estabelecimentoImage = logoPreview.dataset.base64;
+            row.estabelecimento_imagem = logoPreview.dataset.base64;
+        }
+
+        row.isManuallyEdited = true;
+
+        btn.disabled = true;
+        btn.innerText = 'Regerando Arte...';
+
+        try {
+            if (!activeCampaignId) throw new Error("ID da campanha ativo não encontrado.");
+            const activeCampaign = await window.StorageManager.getCampaign(activeCampaignId);
+            if (!activeCampaign) throw new Error("Campanha não encontrada no banco de dados.");
+            const templates = await window.StorageManager.getTemplates();
+            const activeTpl = templates.find(x => x.id === activeCampaign.templateId);
+
+            const feedPromise = activeTpl.feed && activeTpl.feed.objects && activeTpl.feed.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, activeTpl.feed, true) 
+                : Promise.resolve(null);
+            
+            const storyPromise = activeTpl.story && activeTpl.story.objects && activeTpl.story.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, activeTpl.story, false) 
+                : Promise.resolve(null);
+
+            const [fImg, sImg] = await Promise.all([feedPromise, storyPromise]);
+            
+            result.feedDataUrl = fImg;
+            result.storyDataUrl = sImg;
+
+            // Auto-save
+            activeCampaign.results = generatedResults;
+            await window.StorageManager.saveCampaign(activeCampaign);
+
+            modal.classList.remove('active');
+            
+            const filter = document.querySelector('#tab-campaign-editor .filters .btn.active').dataset.filter;
+            const query = document.getElementById('search-editor').value;
+            renderEditorGrid(filter, query);
+            showToast('Sucesso', 'Arte editada e regerada com sucesso!');
+        } catch (e) {
+            console.error(e);
+            showToast('Erro', e.message || 'Erro ao regerar arte.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="ph ph-check"></i> Salvar e Regerar Arte';
+        }
+    });
+
+    window.deleteCampaign = async (id) => {
+        showConfirm('Excluir Campanha', 'Tem certeza que deseja excluir esta campanha? Todos os resultados salvos serão perdidos.', async () => {
+            await window.StorageManager.deleteCampaign(id);
+            if(activeCampaignId === id) {
+                activeCampaignId = null;
+                generatedResults = [];
+                parsedData = [];
+                document.getElementById('review-campaign-name').innerText = '';
+                document.getElementById('nav-review-btn').disabled = true;
+            }
+            loadCampaigns();
+            showToast('Sucesso', 'Campanha excluída.');
+        });
+    };
+
+    // Initial loads
+    loadConfigs();
+    loadTemplates();
+    loadCampaigns();
+});

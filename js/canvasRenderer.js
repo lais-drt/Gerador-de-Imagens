@@ -1,0 +1,224 @@
+const CanvasRenderer = {
+    imageCache: new Map(),
+
+    async fetchImageAsBlob(url) {
+        if (!url) return null;
+        if (this.imageCache.has(url)) return this.imageCache.get(url);
+
+        if (url.startsWith('data:')) {
+            return new Promise((resolve) => {
+                fabric.Image.fromURL(url, (img) => {
+                    if(img) this.imageCache.set(url, img);
+                    resolve(img);
+                });
+            });
+        }
+
+        const tryFetch = async (targetUrl) => {
+            const response = await fetch(targetUrl);
+            if (!response.ok) throw new Error('Network response was not ok');
+            const blob = await response.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            
+            return new Promise((resolve) => {
+                fabric.Image.fromURL(objectUrl, (img) => {
+                    if(img) {
+                        this.imageCache.set(url, img);
+                        resolve(img);
+                    } else {
+                        resolve(null);
+                    }
+                });
+            });
+        };
+
+        try {
+            const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+            return await tryFetch(proxyUrl);
+        } catch (e) {
+            console.warn("Codetabs proxy failed, trying corsproxy.io...", e);
+            try {
+                const proxyUrl2 = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+                return await tryFetch(proxyUrl2);
+            } catch (err) {
+                console.warn("All proxies failed, trying direct img src load...", err);
+                return new Promise((resolve) => {
+                    fabric.Image.fromURL(url, (img) => {
+                        if(img) this.imageCache.set(url, img);
+                        resolve(img);
+                    }, { crossOrigin: 'anonymous' });
+                });
+            }
+        }
+    },
+
+    createTextImage(text, targetWidth, targetHeight, color, fontName, alignment) {
+        return new Promise((resolve) => {
+            const offCanvas = document.createElement('canvas');
+            const ctx = offCanvas.getContext('2d');
+            
+            offCanvas.width = targetWidth;
+            offCanvas.height = targetHeight;
+            
+            let fontSize = targetHeight; 
+            ctx.font = `bold ${fontSize}px "${fontName}"`;
+            
+            // Native measurement loop (ultra fast)
+            while (ctx.measureText(text).width > targetWidth && fontSize > 10) {
+                fontSize--;
+                ctx.font = `bold ${fontSize}px "${fontName}"`;
+            }
+
+            ctx.fillStyle = color;
+            ctx.textBaseline = 'middle';
+            
+            let xPos = 0;
+            if (alignment === 'center') {
+                ctx.textAlign = 'center';
+                xPos = targetWidth / 2;
+            } else if (alignment === 'right') {
+                ctx.textAlign = 'right';
+                xPos = targetWidth;
+            } else {
+                ctx.textAlign = 'left';
+                xPos = 0;
+            }
+            
+            ctx.fillText(text, xPos, targetHeight / 2);
+            
+            fabric.Image.fromURL(offCanvas.toDataURL(), (img) => {
+                resolve(img);
+            });
+        });
+    },
+
+    async generateImage(dataRow, templateConfigFormat, isFeed) {
+        return new Promise((resolve, reject) => {
+            if (!templateConfigFormat || !templateConfigFormat.objects) {
+                return reject("Template format invalid");
+            }
+
+            const w = templateConfigFormat.bgDimensions ? templateConfigFormat.bgDimensions.w : 1080;
+            const h = templateConfigFormat.bgDimensions ? templateConfigFormat.bgDimensions.h : (isFeed ? 1350 : 1920);
+
+            const canvas = new fabric.StaticCanvas(null, {
+                width: w,
+                height: h
+            });
+
+            const scaleMultiplier = 1; // Removed legacy scaling since editor uses true coordinates
+
+            canvas.backgroundColor = '#ffffff';
+
+            this.loadObjects(canvas, templateConfigFormat.objects, dataRow, scaleMultiplier, resolve, reject);
+        });
+    },
+
+    async loadObjects(canvas, objectsJson, dataRow, scaleM, resolve, reject) {
+        fabric.util.enlivenObjects(objectsJson, async (objs) => {
+            const promises = [];
+
+            for (let obj of objs) {
+                // No scale mapping needed, objects are already in true coordinates
+                // Keep obj as is
+
+
+                if (obj.isBgImage) {
+                    obj.set({
+                        scaleX: canvas.width / obj.width,
+                        scaleY: canvas.height / obj.height,
+                        originX: 'left',
+                        originY: 'top',
+                        left: 0,
+                        top: 0
+                    });
+                    canvas.add(obj);
+                    obj.sendToBack();
+                }
+                else if (obj.placeholderType === 'text' && obj.bindKey) {
+                    let textVal = String(dataRow[obj.bindKey] || '');
+                    
+                    const targetW = obj.width * obj.scaleX;
+                    const targetH = obj.height * obj.scaleY;
+                    
+                    const p = this.createTextImage(
+                        textVal, 
+                        targetW, 
+                        targetH, 
+                        obj.customColor || '#ffffff', 
+                        obj.customFont || 'Inter', 
+                        obj.customAlign || 'center'
+                    ).then(textImg => {
+                        textImg.set({
+                            left: obj.left,
+                            top: obj.top,
+                            originX: obj.originX,
+                            originY: obj.originY
+                        });
+                        canvas.add(textImg);
+                    });
+                    promises.push(p);
+                } 
+                else if (obj.isPlaceholder && obj.bindKey) {
+                    let imgUrl = dataRow[obj.bindKey];
+                    if (imgUrl) {
+                        const p = this.fetchImageAsBlob(imgUrl).then(fImg => {
+                            if (fImg) {
+                                const targetW = obj.width * obj.scaleX;
+                                const targetH = obj.height * obj.scaleY;
+                                
+                                const ratioX = targetW / fImg.width;
+                                const ratioY = targetH / fImg.height;
+                                const ratio = Math.max(ratioX, ratioY);
+
+                                fImg.set({
+                                    left: obj.left,
+                                    top: obj.top,
+                                    originX: obj.originX,
+                                    originY: obj.originY,
+                                    scaleX: ratio,
+                                    scaleY: ratio
+                                });
+
+                                let clipPath;
+                                if (obj.placeholderShape === 'circle') {
+                                    clipPath = new fabric.Circle({
+                                        radius: (obj.width / 2),
+                                        originX: 'center',
+                                        originY: 'center',
+                                    });
+                                } else {
+                                    clipPath = new fabric.Rect({
+                                        width: obj.width,
+                                        height: obj.height,
+                                        originX: 'center',
+                                        originY: 'center',
+                                    });
+                                }
+                                
+                                clipPath.scaleX = 1/ratio * obj.scaleX;
+                                clipPath.scaleY = 1/ratio * obj.scaleY;
+                                
+                                fImg.set({ clipPath: clipPath });
+                                canvas.add(fImg);
+                            } else {
+                                if(!dataRow.alert) dataRow.alert = `Erro ao carregar img: Proxy falhou.`;
+                            }
+                        });
+                        promises.push(p);
+                    }
+                } else {
+                    canvas.add(obj);
+                }
+            }
+
+            await Promise.all(promises);
+            canvas.renderAll();
+            
+            const dataUrl = canvas.toDataURL({ format: 'png', quality: 1 });
+            resolve(dataUrl);
+        });
+    }
+};
+
+window.CanvasRenderer = CanvasRenderer;
