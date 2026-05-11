@@ -166,6 +166,72 @@ const Editor = {
         }
     },
 
+    alignSelected(direction) {
+        const activeObj = this.canvas.getActiveObject();
+        if (!activeObj) return;
+
+        if (activeObj.type === 'activeSelection') {
+            const objects = activeObj.getObjects();
+            objects.forEach(obj => {
+                const w = obj.width * obj.scaleX;
+                const h = obj.height * obj.scaleY;
+                
+                switch (direction) {
+                    case 'left':
+                        obj.set('left', -activeObj.width / 2 + (obj.originX === 'center' ? w / 2 : 0));
+                        break;
+                    case 'center-h':
+                        obj.set('left', 0 - (obj.originX === 'left' ? w / 2 : 0));
+                        break;
+                    case 'right':
+                        obj.set('left', activeObj.width / 2 - (obj.originX === 'left' ? w : w / 2));
+                        break;
+                    case 'top':
+                        obj.set('top', -activeObj.height / 2 + (obj.originY === 'center' ? h / 2 : 0));
+                        break;
+                    case 'center-v':
+                        obj.set('top', 0 - (obj.originY === 'top' ? h / 2 : 0));
+                        break;
+                    case 'bottom':
+                        obj.set('top', activeObj.height / 2 - (obj.originY === 'top' ? h : h / 2));
+                        break;
+                }
+            });
+            activeObj.setCoords();
+            this.canvas.renderAll();
+            this.saveHistory();
+        } else {
+            const canvasW = this.canvas.width;
+            const canvasH = this.canvas.height;
+            const w = activeObj.width * activeObj.scaleX;
+            const h = activeObj.height * activeObj.scaleY;
+
+            switch (direction) {
+                case 'left':
+                    activeObj.set('left', activeObj.originX === 'center' ? w / 2 : 0);
+                    break;
+                case 'center-h':
+                    activeObj.set('left', canvasW / 2 - (activeObj.originX === 'left' ? w / 2 : 0));
+                    break;
+                case 'right':
+                    activeObj.set('left', canvasW - (activeObj.originX === 'left' ? w : w / 2));
+                    break;
+                case 'top':
+                    activeObj.set('top', activeObj.originY === 'center' ? h / 2 : 0);
+                    break;
+                case 'center-v':
+                    activeObj.set('top', canvasH / 2 - (activeObj.originY === 'top' ? h / 2 : 0));
+                    break;
+                case 'bottom':
+                    activeObj.set('top', canvasH - (activeObj.originY === 'top' ? h : h / 2));
+                    break;
+            }
+            activeObj.setCoords();
+            this.canvas.renderAll();
+            this.saveHistory();
+        }
+    },
+
     copy() {
         const active = this.canvas.getActiveObject();
         if (active) {
@@ -268,20 +334,7 @@ const Editor = {
             }
         });
 
-        document.querySelectorAll('.align-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const align = e.currentTarget.dataset.align;
-                const obj = this.canvas.getActiveObject();
-                if (obj && obj.placeholderType === 'text') {
-                    obj.set('customAlign', align);
-                    this.canvas.renderAll();
-                    
-                    document.querySelectorAll('.align-btn').forEach(b => b.classList.remove('active'));
-                    e.currentTarget.classList.add('active');
-                    this.saveHistory();
-                }
-            });
-        });
+
 
         document.getElementById('btn-switch-feed').addEventListener('click', () => {
             document.getElementById('btn-switch-feed').classList.add('active');

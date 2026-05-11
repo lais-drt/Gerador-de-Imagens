@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bigou - Gerador de Imagens Promocionais V2</title>
+    
+    <link rel="icon" type="image/png" href="./favicon.png">
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style id="custom-fonts-style"></style> <!-- Injetar fontes aqui -->
@@ -222,12 +224,15 @@
                                         <!-- Custom fonts injected here -->
                                     </select>
                                 </div>
-                                <div class="form-group">
-                                    <label>Alinhamento (Texto)</label>
-                                    <div style="display:flex; gap:4px;">
-                                        <button class="btn btn-sm btn-outline align-btn" data-align="left"><i class="ph ph-text-align-left"></i></button>
-                                        <button class="btn btn-sm btn-outline align-btn" data-align="center"><i class="ph ph-text-align-center"></i></button>
-                                        <button class="btn btn-sm btn-outline align-btn" data-align="right"><i class="ph ph-text-align-right"></i></button>
+                                <div class="form-group mb-6">
+                                    <label>Alinhar Elementos</label>
+                                    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;">
+                                        <button class="btn btn-sm btn-outline" onclick="Editor.alignSelected('left')" title="Alinhar à Esquerda"><i class="ph ph-align-left"></i></button>
+                                        <button class="btn btn-sm btn-outline" onclick="Editor.alignSelected('center-h')" title="Centralizar Horizontalmente"><i class="ph ph-align-center-horizontal"></i></button>
+                                        <button class="btn btn-sm btn-outline" onclick="Editor.alignSelected('right')" title="Alinhar à Direita"><i class="ph ph-align-right"></i></button>
+                                        <button class="btn btn-sm btn-outline" onclick="Editor.alignSelected('top')" title="Alinhar ao Topo"><i class="ph ph-align-top"></i></button>
+                                        <button class="btn btn-sm btn-outline" onclick="Editor.alignSelected('center-v')" title="Centralizar Verticalmente"><i class="ph ph-align-center-vertical"></i></button>
+                                        <button class="btn btn-sm btn-outline" onclick="Editor.alignSelected('bottom')" title="Alinhar à Base"><i class="ph ph-align-bottom"></i></button>
                                     </div>
                                 </div>
                                 <button class="btn btn-sm btn-outline text-danger mt-4" style="width:100%; border-color:var(--danger); color:var(--danger);" onclick="Editor.deleteSelected()"><i class="ph ph-trash"></i> Excluir Elemento</button>
@@ -378,35 +383,45 @@
             <hr class="mb-4">
             
             <div class="form-group mb-4">
-                <label>Resolver como:</label>
-                <select id="corr-action-type" class="form-control mb-3">
-                    <option value="existing">Vincular a Categoria Existente</option>
-                    <option value="new">Criar Nova Categoria</option>
-                    <option value="specific">Enviar Foto Específica (Apenas esta vez)</option>
+                <label style="font-weight: 600; color: var(--gray-800); margin-bottom: 8px; display: block;">Resolver como:</label>
+                <select id="corr-action-type" class="form-control mb-4" style="background-color: #f8fafc; border-color: #cbd5e1;">
+                    <option value="existing">Associar a categoria existente</option>
+                    <option value="new">Criar nova categoria</option>
+                    <option value="specific">Usar imagem específica apenas neste item</option>
                 </select>
 
                 <div id="corr-panel-existing">
+                    <label class="text-sm text-gray-600 mb-2 block">Selecione a categoria correspondente</label>
                     <select id="corr-category-select" class="form-control mb-2">
                         <option value="">Selecione a Categoria...</option>
                     </select>
-                    <input type="text" id="corr-new-keyword" class="form-control" placeholder="Adicionar nova palavra-chave (Ex: suco, refri)">
+                    <label class="text-sm text-gray-600 mb-2 mt-4 block">Novas palavras-chave (opcional, para ensinar o sistema)</label>
+                    <input type="text" id="corr-new-keyword" class="form-control mb-2" placeholder="Ex: pizza cone, cone pizza">
                 </div>
 
                 <div id="corr-panel-new" class="hidden">
+                    <label class="text-sm text-gray-600 mb-2 block">Nome e palavras-chave da nova categoria</label>
                     <input type="text" id="corr-create-cat-name" class="form-control mb-2" placeholder="Nome da Nova Categoria (Ex: Bebidas Frias)">
-                    <input type="text" id="corr-create-cat-kws" class="form-control mb-2" placeholder="Palavras-chave (separadas por vírgula)">
-                    <div class="upload-area" style="padding: 16px;">
+                    <input type="text" id="corr-create-cat-kws" class="form-control mb-3" placeholder="Palavras-chave (separadas por vírgula)">
+                    
+                    <label class="text-sm text-gray-600 mb-2 block">Imagem padrão da categoria</label>
+                    <div class="upload-area" style="padding: 20px; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 8px; text-align: center; margin-bottom: 0;">
                         <input type="file" id="corr-create-cat-img" accept="image/*" class="hidden-input">
-                        <button class="btn btn-sm btn-outline" onclick="document.getElementById('corr-create-cat-img').click()">Anexar Foto Padrão da Categoria</button>
-                        <p id="corr-create-cat-img-name" style="margin-top:8px; font-size:0.8rem; color:var(--success);"></p>
+                        <button class="btn btn-sm btn-outline" style="background: white;" onclick="document.getElementById('corr-create-cat-img').click()">
+                            <i class="ph ph-upload-simple"></i> Anexar Foto Padrão da Categoria
+                        </button>
+                        <p id="corr-create-cat-img-name" style="margin-top:8px; font-size:0.8rem; color:var(--success); font-weight: 500;"></p>
                     </div>
                 </div>
 
                 <div id="corr-panel-specific" class="hidden">
-                    <div class="upload-area" style="padding: 16px;">
+                    <label class="text-sm text-gray-600 mb-2 block">Foto exclusiva para este item</label>
+                    <div class="upload-area" style="padding: 20px; background: #f8fafc; border: 2px dashed #cbd5e1; border-radius: 8px; text-align: center; margin-bottom: 0;">
                         <input type="file" id="corr-specific-upload" accept="image/*" class="hidden-input">
-                        <button class="btn btn-sm btn-outline" onclick="document.getElementById('corr-specific-upload').click()">Anexar Foto Específica</button>
-                        <p id="corr-upload-name" style="display:none; margin-top:8px; font-size:0.8rem; color:var(--success);"></p>
+                        <button class="btn btn-sm btn-outline" style="background: white;" onclick="document.getElementById('corr-specific-upload').click()">
+                            <i class="ph ph-upload-simple"></i> Selecionar Foto Específica
+                        </button>
+                        <p id="corr-upload-name" style="display:none; margin-top:8px; font-size:0.8rem; color:var(--success); font-weight: 500;"></p>
                     </div>
                 </div>
             </div>

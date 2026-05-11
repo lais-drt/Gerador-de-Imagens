@@ -405,9 +405,12 @@ document.addEventListener('DOMContentLoaded', async () => {
             grid.appendChild(card);
         });
 
-        document.getElementById('count-all').innerText = generatedResults.length;
-        document.getElementById('count-success').innerText = successCount;
-        document.getElementById('count-alert').innerText = alertCount;
+        const elAll = document.getElementById('count-all');
+        const elAlert = document.getElementById('count-alert');
+        const elSuccess = document.getElementById('count-success');
+        if (elAll) elAll.innerText = generatedResults.length;
+        if (elAlert) elAlert.innerText = alertCount;
+        if (elSuccess) elSuccess.innerText = successCount;
         
         const badge = document.getElementById('review-badge');
         badge.innerText = alertCount;
@@ -548,8 +551,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (keyword) {
                     const keys = await window.StorageManager.getKeywords();
                     let currentKeys = keys[catId] || '';
-                    const newKeys = currentKeys ? currentKeys + ', ' + keyword : keyword;
-                    await window.StorageManager.saveKeyword(catId, newKeys);
+                    
+                    const existingArr = currentKeys.split(',').map(k => k.trim()).filter(k => k);
+                    const newArr = keyword.split(',').map(k => k.trim()).filter(k => k);
+                    
+                    const uniqueKeys = [...new Set([...existingArr, ...newArr])];
+                    await window.StorageManager.saveKeyword(catId, uniqueKeys.join(', '));
+                    
+                    // Reload configs in background so it's immediately available without refresh
+                    loadConfigs();
                 }
             }
 
@@ -608,21 +618,27 @@ document.addEventListener('DOMContentLoaded', async () => {
         const safeCampaignName = campaignNameStr.replace(/[^a-z0-9_-]/gi, '_');
         
         const rootFolder = zip.folder(safeCampaignName);
-        const exportsFeed = rootFolder.folder('exports').folder('feed');
-        const exportsStory = rootFolder.folder('exports').folder('story');
+        const partnerCounts = {};
 
         generatedResults.forEach(res => {
             if (res.rowData.alert && !res.feedDataUrl) return; 
             
             const safePartnerName = res.rowData.partnerName.replace(/[^a-z0-9_-]/gi, '_');
+            const partnerFolder = rootFolder.folder(safePartnerName);
+
+            if (!partnerCounts[safePartnerName]) {
+                partnerCounts[safePartnerName] = 0;
+            }
+            partnerCounts[safePartnerName]++;
+            const suffix = partnerCounts[safePartnerName] > 1 ? `_${partnerCounts[safePartnerName]}` : '';
 
             if (res.feedDataUrl) {
                 const feedBase64 = res.feedDataUrl.split(',')[1];
-                exportsFeed.file(`${safePartnerName}.png`, feedBase64, {base64: true});
+                partnerFolder.file(`feed${suffix}.png`, feedBase64, {base64: true});
             }
             if (res.storyDataUrl) {
                 const storyBase64 = res.storyDataUrl.split(',')[1];
-                exportsStory.file(`${safePartnerName}.png`, storyBase64, {base64: true});
+                partnerFolder.file(`story${suffix}.png`, storyBase64, {base64: true});
             }
             savedCount++;
         });
@@ -769,10 +785,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const row = generatedResults[index].rowData;
         document.getElementById('manual-edit-modal').dataset.activeIndex = index;
         
-        document.getElementById('edit-item-name').value = row.itemName || '';
-        document.getElementById('edit-price-orig').value = row.priceOriginal || row.preco_original || '';
+        document.getElementById('edit-item-name').value = row.itemName || row.item_nome || '';
+        document.getElementById('edit-price-orig').value = row.priceOrig || row.priceOriginal || row.preco_original || '';
         document.getElementById('edit-price-promo').value = row.pricePromo || row.preco_promocional || '';
-        document.getElementById('edit-days').value = row.daysActive || row.disponibilidade_diaria || '';
+        document.getElementById('edit-days').value = row.daysText || row.daysActive || row.disponibilidade_diaria || '';
         
         document.getElementById('edit-item-img').value = '';
         document.getElementById('edit-logo').value = '';
@@ -821,22 +837,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Extract values with backwards compatibility
         const valItemName = document.getElementById('edit-item-name').value.trim();
-        row.itemName = valItemName;
-        row.item_nome = valItemName;
+        if (valItemName) {
+            row.itemName = valItemName;
+            row.item_nome = valItemName;
+        }
         
         const valPriceOrig = document.getElementById('edit-price-orig').value.trim();
-        row.priceOrig = valPriceOrig;
-        row.priceOriginal = valPriceOrig; 
-        row.preco_original = valPriceOrig; 
+        if (valPriceOrig) {
+            row.priceOrig = valPriceOrig;
+            row.priceOriginal = valPriceOrig; 
+            row.preco_original = valPriceOrig; 
+        }
         
         const valPricePromo = document.getElementById('edit-price-promo').value.trim();
-        row.pricePromo = valPricePromo;
-        row.preco_promocional = valPricePromo;
+        if (valPricePromo) {
+            row.pricePromo = valPricePromo;
+            row.preco_promocional = valPricePromo;
+        }
         
         const valDays = document.getElementById('edit-days').value.trim();
-        row.daysText = valDays;
-        row.daysActive = valDays;
-        row.disponibilidade_diaria = valDays;
+        if (valDays) {
+            row.daysText = valDays;
+            row.daysActive = valDays;
+            row.disponibilidade_diaria = valDays;
+        }
         
         const itemPreview = document.getElementById('edit-item-img-preview');
         if(itemPreview.dataset.base64) {

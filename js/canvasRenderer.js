@@ -3,12 +3,17 @@ const CanvasRenderer = {
 
     async fetchImageAsBlob(url) {
         if (!url) return null;
-        if (this.imageCache.has(url)) return this.imageCache.get(url);
+        if (this.imageCache.has(url)) {
+            const cachedSrc = this.imageCache.get(url);
+            return new Promise((resolve) => {
+                fabric.Image.fromURL(cachedSrc, (img) => resolve(img), { crossOrigin: 'anonymous' });
+            });
+        }
 
         if (url.startsWith('data:')) {
+            this.imageCache.set(url, url);
             return new Promise((resolve) => {
                 fabric.Image.fromURL(url, (img) => {
-                    if(img) this.imageCache.set(url, img);
                     resolve(img);
                 });
             });
@@ -20,14 +25,11 @@ const CanvasRenderer = {
             const blob = await response.blob();
             const objectUrl = URL.createObjectURL(blob);
             
+            this.imageCache.set(url, objectUrl);
+
             return new Promise((resolve) => {
                 fabric.Image.fromURL(objectUrl, (img) => {
-                    if(img) {
-                        this.imageCache.set(url, img);
-                        resolve(img);
-                    } else {
-                        resolve(null);
-                    }
+                    resolve(img);
                 });
             });
         };
@@ -43,8 +45,8 @@ const CanvasRenderer = {
             } catch (err) {
                 console.warn("All proxies failed, trying direct img src load...", err);
                 return new Promise((resolve) => {
+                    this.imageCache.set(url, url);
                     fabric.Image.fromURL(url, (img) => {
-                        if(img) this.imageCache.set(url, img);
                         resolve(img);
                     }, { crossOrigin: 'anonymous' });
                 });
@@ -171,11 +173,17 @@ const CanvasRenderer = {
                                 const ratioY = targetH / fImg.height;
                                 const ratio = Math.max(ratioX, ratioY);
 
+                                const originX = obj.originX || 'left';
+                                const originY = obj.originY || 'top';
+                                
+                                const placeholderCenterX = obj.left + (originX === 'center' ? 0 : targetW / 2);
+                                const placeholderCenterY = obj.top + (originY === 'center' ? 0 : targetH / 2);
+
                                 fImg.set({
-                                    left: obj.left,
-                                    top: obj.top,
-                                    originX: obj.originX,
-                                    originY: obj.originY,
+                                    left: placeholderCenterX,
+                                    top: placeholderCenterY,
+                                    originX: 'center',
+                                    originY: 'center',
                                     scaleX: ratio,
                                     scaleY: ratio
                                 });
