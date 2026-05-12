@@ -201,6 +201,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     <td><strong>${t.name}</strong></td>
                     <td>
                         <button class="btn btn-sm btn-outline" onclick="editTemplate('${t.id}')">Editar</button>
+                        <button class="btn btn-sm btn-outline" onclick="exportTemplate('${t.id}')">Exportar</button>
                         <button class="btn btn-sm btn-outline text-danger" onclick="deleteTemplate('${t.id}')">Excluir</button>
                     </td>
                 `;
@@ -234,6 +235,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             loadTemplates();
             showToast('Sucesso', 'Template excluído com sucesso!');
         });
+    };
+
+    window.exportTemplate = async (id) => {
+        const templates = await window.StorageManager.getTemplates();
+        const t = templates.find(x => x.id === id);
+        if (t) {
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(t));
+            const downloadAnchorNode = document.createElement('a');
+            downloadAnchorNode.setAttribute("href",     dataStr);
+            downloadAnchorNode.setAttribute("download", (t.name || 'template') + ".json");
+            document.body.appendChild(downloadAnchorNode);
+            downloadAnchorNode.click();
+            downloadAnchorNode.remove();
+            showToast('Sucesso', 'Template exportado com sucesso!');
+        }
     };
 
     document.getElementById('btn-new-template').addEventListener('click', () => {
@@ -933,6 +949,129 @@ document.addEventListener('DOMContentLoaded', async () => {
             showToast('Sucesso', 'Campanha excluída.');
         });
     };
+
+    // --- Geração Avulsa Logic ---
+    let singleImportedTemplate = null;
+    let singleFeedUrl = null;
+    let singleStoryUrl = null;
+
+    document.getElementById('import-template-file').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                singleImportedTemplate = JSON.parse(ev.target.result);
+                document.getElementById('single-template-status').innerText = `Template importado: ${singleImportedTemplate.name || 'Sem nome'}`;
+                document.getElementById('single-template-status').style.color = 'var(--success)';
+                document.getElementById('btn-generate-single').disabled = false;
+            } catch (err) {
+                showToast('Erro', 'Arquivo de template inválido.', 'error');
+            }
+        };
+        reader.readAsText(file);
+    });
+
+    const fileToBase64 = (file) => {
+        return new Promise((resolve) => {
+            if (!file) return resolve(null);
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.readAsDataURL(file);
+        });
+    };
+
+    document.getElementById('btn-generate-single').addEventListener('click', async () => {
+        if (!singleImportedTemplate) return showToast('Aviso', 'Importe um template primeiro.', 'error');
+
+        const btn = document.getElementById('btn-generate-single');
+        btn.disabled = true;
+        btn.innerText = 'Processando...';
+
+        try {
+            const partnerName = document.getElementById('single-partner-name').value.trim();
+            const itemName = document.getElementById('single-item-name').value.trim();
+            const priceOrig = document.getElementById('single-price-orig').value.trim();
+            const pricePromo = document.getElementById('single-price-promo').value.trim();
+            const daysText = document.getElementById('single-days').value.trim();
+            
+            const itemImageFile = document.getElementById('single-item-img').files[0];
+            const logoImageFile = document.getElementById('single-logo-img').files[0];
+
+            const itemImageB64 = await fileToBase64(itemImageFile);
+            const logoImageB64 = await fileToBase64(logoImageFile);
+
+            const row = {
+                partnerName: partnerName || 'Nome do Parceiro',
+                itemName: itemName || 'Nome do Item',
+                priceOrig: priceOrig || '',
+                pricePromo: pricePromo || '',
+                daysText: daysText || '',
+                itemImage: itemImageB64 || null,
+                logoImage: logoImageB64 || null,
+                // Fallbacks since template bindings can map to multiple fields:
+                item_nome: itemName || 'Nome do Item',
+                priceOriginal: priceOrig || '',
+                preco_original: priceOrig || '',
+                preco_promocional: pricePromo || '',
+                daysActive: daysText || '',
+                disponibilidade_diaria: daysText || '',
+                estabelecimento_imagem: logoImageB64 || null
+            };
+
+            const feedPromise = singleImportedTemplate.feed && singleImportedTemplate.feed.objects && singleImportedTemplate.feed.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, singleImportedTemplate.feed, true) 
+                : Promise.resolve(null);
+            
+            const storyPromise = singleImportedTemplate.story && singleImportedTemplate.story.objects && singleImportedTemplate.story.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, singleImportedTemplate.story, false) 
+                : Promise.resolve(null);
+
+            const [fImg, sImg] = await Promise.all([feedPromise, storyPromise]);
+
+            singleFeedUrl = fImg;
+            singleStoryUrl = sImg;
+
+            const feedPreview = document.getElementById('single-feed-preview');
+            const storyPreview = document.getElementById('single-story-preview');
+
+            feedPreview.src = fImg || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+            storyPreview.src = sImg || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+            document.getElementById('single-result-area').classList.remove('hidden');
+
+            showToast('Sucesso', 'Artes geradas com sucesso!');
+        } catch (err) {
+            console.error(err);
+            showToast('Erro', 'Ocorreu um erro ao gerar as artes.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerText = '3. Gerar Artes Avulsas';
+        }
+    });
+
+    document.getElementById('btn-download-single').addEventListener('click', () => {
+        if (!singleFeedUrl && !singleStoryUrl) return showToast('Aviso', 'Nenhuma arte para baixar.', 'error');
+        
+        const partnerName = document.getElementById('single-partner-name').value.trim() || 'parceiro';
+        const safePartnerName = partnerName.replace(/[^a-z0-9_-]/gi, '_');
+
+        const zip = new JSZip();
+        
+        if (singleFeedUrl) {
+            const feedBase64 = singleFeedUrl.split(',')[1];
+            zip.file(`feed_${safePartnerName}.png`, feedBase64, {base64: true});
+        }
+        if (singleStoryUrl) {
+            const storyBase64 = singleStoryUrl.split(',')[1];
+            zip.file(`story_${safePartnerName}.png`, storyBase64, {base64: true});
+        }
+
+        zip.generateAsync({type: "blob"}).then(function(content) {
+            saveAs(content, `promocao_${safePartnerName}.zip`);
+        });
+    });
 
     // Initial loads
     loadConfigs();

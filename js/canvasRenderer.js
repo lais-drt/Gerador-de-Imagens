@@ -95,6 +95,7 @@ const CanvasRenderer = {
     },
 
     async generateImage(dataRow, templateConfigFormat, isFeed) {
+        await document.fonts.ready;
         return new Promise((resolve, reject) => {
             if (!templateConfigFormat || !templateConfigFormat.objects) {
                 return reject("Template format invalid");

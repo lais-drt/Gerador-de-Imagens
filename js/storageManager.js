@@ -97,6 +97,7 @@ const StorageManager = {
     async loadFontsFromStorage() {
         const fonts = await this.getFonts();
         let cssString = '';
+        const fontLoadPromises = [];
         fonts.forEach(f => {
             cssString += `
             @font-face {
@@ -105,6 +106,12 @@ const StorageManager = {
             }\n`;
         });
         document.getElementById('custom-fonts-style').innerHTML = cssString;
+        
+        // Força o navegador a pré-carregar as fontes na memória
+        fonts.forEach(f => {
+            try { fontLoadPromises.push(document.fonts.load(`16px "${f.name}"`)); } catch(e){}
+        });
+        await Promise.all(fontLoadPromises);
     },
 
     async injectFont(name, data) {
@@ -114,6 +121,7 @@ const StorageManager = {
             src: url('${data}');
         }\n`;
         document.getElementById('custom-fonts-style').innerHTML += cssString;
+        try { await document.fonts.load(`16px "${name}"`); } catch(e){}
     },
 
     // --- GENERICS & KEYWORDS ---

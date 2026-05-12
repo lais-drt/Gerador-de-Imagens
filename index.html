@@ -55,6 +55,9 @@
                 <button class="nav-item" data-tab="tab-config">
                     <i class="ph ph-gear"></i> Configurações
                 </button>
+                <button class="nav-item" data-tab="tab-single">
+                    <i class="ph ph-user-plus"></i> Geração Avulsa
+                </button>
                 <button class="nav-item" data-tab="tab-review" id="nav-review-btn" disabled>
                     <i class="ph ph-check-square-offset"></i> Conferência
                     <span class="badge" id="review-badge" style="display:none;">0</span>
@@ -299,6 +302,85 @@
                             
                             <div id="generics-container">
                         <button id="btn-save-keywords" class="btn btn-primary mt-4 btn-block">Salvar Palavras-chave</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB: SINGLE GENERATION -->
+            <section id="tab-single" class="tab-content">
+                <header class="tab-header">
+                    <h1>Geração Avulsa (Suporte/CS)</h1>
+                    <p>Gere artes individuais para parceiros importando um template fornecido pelo marketing.</p>
+                </header>
+
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <div class="form-group mb-4">
+                            <label>1. Importar Template do Marketing (.json)</label>
+                            <input type="file" id="import-template-file" accept=".json" class="form-control">
+                            <small class="text-muted" id="single-template-status">Nenhum template importado ainda.</small>
+                        </div>
+                        
+                        <hr class="mb-4">
+                        
+                        <h4 class="mb-4">2. Dados da Promoção</h4>
+                        <div class="grid-2 gap-4 mb-4">
+                            <div class="form-group">
+                                <label>Nome do Parceiro</label>
+                                <input type="text" id="single-partner-name" class="form-control" placeholder="Ex: Pizzaria Mamma Mia">
+                            </div>
+                            <div class="form-group">
+                                <label>Nome do Item</label>
+                                <input type="text" id="single-item-name" class="form-control" placeholder="Ex: Pizza Calabresa">
+                            </div>
+                        </div>
+
+                        <div class="grid-2 gap-4 mb-4">
+                            <div class="form-group">
+                                <label>Preço Original</label>
+                                <input type="text" id="single-price-orig" class="form-control" placeholder="Ex: R$ 50,00">
+                            </div>
+                            <div class="form-group">
+                                <label>Preço Promocional</label>
+                                <input type="text" id="single-price-promo" class="form-control" placeholder="Ex: R$ 35,00">
+                            </div>
+                        </div>
+
+                        <div class="form-group mb-4">
+                            <label>Dias Ativos</label>
+                            <input type="text" id="single-days" class="form-control" placeholder="Ex: Terça e Quarta">
+                        </div>
+
+                        <div class="grid-2 gap-4 mb-6" style="grid-template-columns: 1fr 1fr;">
+                            <div class="form-group">
+                                <label>Imagem do Item (Opcional)</label>
+                                <input type="file" id="single-item-img" accept="image/*" class="form-control">
+                            </div>
+                            <div class="form-group">
+                                <label>Logo do Estabelecimento (Opcional)</label>
+                                <input type="file" id="single-logo-img" accept="image/*" class="form-control">
+                            </div>
+                        </div>
+
+                        <button id="btn-generate-single" class="btn btn-primary btn-block mb-6" disabled>3. Gerar Artes Avulsas</button>
+                        
+                        <div id="single-result-area" class="hidden">
+                            <hr class="mb-4">
+                            <h4 class="mb-4">Resultado da Geração</h4>
+                            <div class="dual-preview" style="justify-content: center; gap: 24px; margin-bottom: 24px;">
+                                <div style="text-align: center;">
+                                    <p class="text-sm text-gray-600 mb-2">Feed</p>
+                                    <img id="single-feed-preview" src="" style="width: 200px; border: 1px solid #ddd; border-radius: 8px;">
+                                </div>
+                                <div style="text-align: center;">
+                                    <p class="text-sm text-gray-600 mb-2">Story</p>
+                                    <img id="single-story-preview" src="" style="width: 200px; border: 1px solid #ddd; border-radius: 8px;">
+                                </div>
+                            </div>
+                            <div style="text-align: center;">
+                                <button id="btn-download-single" class="btn btn-primary"><i class="ph ph-download-simple"></i> Baixar ZIP</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </section>
