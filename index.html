@@ -452,9 +452,16 @@
                     </div>
                 </header>
 
-                <div class="filters mb-4">
-                    <button class="btn active" data-filter="alert">Apenas Alertas (<span id="count-alert">0</span>)</button>
-                    <button class="btn btn-outline" data-filter="all">Todas as Artes (<span id="count-all">0</span>)</button>
+                <div class="filters mb-4" style="display: flex; gap: 16px; align-items: center; flex-wrap: wrap;">
+                    <label style="font-weight: 600; color: var(--gray-800);">Filtrar por:</label>
+                    <select id="review-filter-select" class="form-control" style="width: auto; min-width: 300px;">
+                        <option value="all">Todas as Artes (0)</option>
+                        <option value="all-alerts">Somente Alertas (0)</option>
+                        <option value="error-img">🔴 Imagem não encontrada (0)</option>
+                        <option value="alert-text">🔵 Nome muito longo (0)</option>
+                        <option value="alert-generic">🟠 Usou imagem padrão (0)</option>
+                        <option value="success">🟢 Sucesso (0)</option>
+                    </select>
                 </div>
 
                 <div class="review-grid" id="review-grid"></div>
@@ -633,6 +640,31 @@
 
             <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
                 <button class="btn btn-primary" id="btn-save-manual-edit"><i class="ph ph-check"></i> Salvar e Regerar Arte</button>
+            </div>
+        </div>
+    </div>
+    <!-- Edit Name Modal -->
+    <div class="modal-overlay" id="edit-name-modal">
+        <div class="modal-content" style="max-width: 400px; width: 90%; background: white; padding: 24px; border-radius: 16px;">
+            <header style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 16px;">
+                <h3 style="margin: 0;">Editar Nome</h3>
+                <button class="btn btn-sm btn-outline" id="edit-name-modal-close" style="border:none;"><i class="ph ph-x" style="font-size: 1.2rem;"></i></button>
+            </header>
+            <div class="modal-body">
+                <p style="color: var(--gray-600); font-size: 0.9rem; margin-bottom: 16px;">
+                    O nome original era muito longo. Altere-o para um texto mais curto.
+                </p>
+                <div class="form-group">
+                    <label>Nome Original</label>
+                    <p id="edit-name-original" style="background: var(--gray-100); padding: 8px; border-radius: 4px; font-size: 0.9rem; margin-bottom: 16px; color: var(--gray-600);"></p>
+                </div>
+                <div class="form-group">
+                    <label>Novo Nome</label>
+                    <input type="text" id="edit-name-input" class="form-control" placeholder="Digite um nome menor...">
+                </div>
+            </div>
+            <div style="display: flex; gap: 12px; justify-content: flex-end; margin-top: 24px;">
+                <button class="btn btn-primary" id="btn-save-name-edit"><i class="ph ph-check"></i> Salvar e Regerar</button>
             </div>
         </div>
     </div>

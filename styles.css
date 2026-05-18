@@ -432,8 +432,9 @@ canvas {
     color: white;
 }
 .badge-success { background: var(--primary); }
-.badge-alert { background: var(--warning); }
+.badge-warning { background: var(--warning); }
 .badge-danger { background: var(--danger); }
+.badge-info { background: #3b82f6; }
 
 /* V2 Additions */
 .table { width: 100%; border-collapse: collapse; }

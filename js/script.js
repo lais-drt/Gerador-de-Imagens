@@ -470,24 +470,49 @@ document.addEventListener('DOMContentLoaded', async () => {
         const grid = document.getElementById('review-grid');
         grid.innerHTML = '';
         
-        let successCount = 0;
-        let alertCount = 0;
+        let countAll = generatedResults.length;
+        let countAlerts = 0;
+        let countError = 0;
+        let countTextLong = 0;
+        let countGeneric = 0;
+        let countSuccess = 0;
 
         generatedResults.forEach((result, index) => {
             const row = result.rowData;
-            const hasAlert = !!row.alert;
-            
-            if (hasAlert) alertCount++;
-            else successCount++;
+            const isError = !!row.alert;
+            const sanitizedName = (row.itemName || '').trim().replace(/\s+/g, ' ');
+            const isTextLong = sanitizedName.length >= 32;
+            const isGeneric = !!row.usedGeneric;
 
-            if (filter === 'success' && hasAlert) return;
-            if (filter === 'alert' && !hasAlert) return;
+            let badgeCls = 'badge-success';
+            let badgeTxt = 'Sucesso';
+
+            if (isError) {
+                badgeCls = 'badge-danger';
+                badgeTxt = 'Imagem não encontrada';
+            } else if (isTextLong) {
+                badgeCls = 'badge-info';
+                badgeTxt = 'Texto muito longo';
+            } else if (isGeneric) {
+                badgeCls = 'badge-warning';
+                badgeTxt = 'Usou imagem padrão';
+            }
+
+            if (badgeCls !== 'badge-success') countAlerts++;
+            else countSuccess++;
+
+            if (badgeCls === 'badge-danger') countError++;
+            if (badgeCls === 'badge-info') countTextLong++;
+            if (badgeCls === 'badge-warning') countGeneric++;
+
+            if (filter === 'success' && badgeCls !== 'badge-success') return;
+            if (filter === 'all-alerts' && badgeCls === 'badge-success') return;
+            if (filter === 'error-img' && badgeCls !== 'badge-danger') return;
+            if (filter === 'alert-text' && badgeCls !== 'badge-info') return;
+            if (filter === 'alert-generic' && badgeCls !== 'badge-warning') return;
 
             const card = document.createElement('div');
             card.className = 'review-card';
-
-            const badgeCls = hasAlert ? 'badge-alert' : (row.usedGeneric ? 'badge-alert' : 'badge-success');
-            const badgeTxt = hasAlert ? 'Alerta' : (row.usedGeneric ? 'Usou Genérica' : 'Sucesso');
 
             const fSrc = result.feedDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
             const sSrc = result.storyDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
@@ -501,33 +526,105 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <div class="review-info">
                     <h4>${row.partnerName}</h4>
                     <p>Item: ${row.itemName || 'Sem nome'}</p>
-                    ${hasAlert ? `<p style="color:var(--danger); font-size: 0.75rem; margin-top:4px;">${row.alert}</p>` : ''}
-                    ${hasAlert ? `<button class="btn btn-sm btn-outline mt-2" style="border-color:var(--warning); color:var(--warning);" onclick="window.openCorrectionModal(${index})">Resolver Pendência</button>` : ''}
+                    ${isError ? `<p style="color:var(--danger); font-size: 0.75rem; margin-top:4px;">${row.alert}</p>` : ''}
+                    ${isError ? `<button class="btn btn-sm btn-outline mt-2" style="border-color:var(--danger); color:var(--danger);" onclick="window.openCorrectionModal(${index})">Resolver Pendência</button>` : ''}
+                    ${isTextLong && !isError ? `<button class="btn btn-sm btn-outline mt-2" style="border-color:#3b82f6; color:#3b82f6;" onclick="window.openEditNameModal(${index})">Editar Nome</button>` : ''}
                 </div>
             `;
             grid.appendChild(card);
         });
 
-        const elAll = document.getElementById('count-all');
-        const elAlert = document.getElementById('count-alert');
-        const elSuccess = document.getElementById('count-success');
-        if (elAll) elAll.innerText = generatedResults.length;
-        if (elAlert) elAlert.innerText = alertCount;
-        if (elSuccess) elSuccess.innerText = successCount;
+        const select = document.getElementById('review-filter-select');
+        if (select) {
+            select.options[0].text = `Todas as Artes (${countAll})`;
+            select.options[1].text = `Somente Alertas (${countAlerts})`;
+            select.options[2].text = `🔴 Imagem não encontrada (${countError})`;
+            select.options[3].text = `🔵 Nome muito longo (${countTextLong})`;
+            select.options[4].text = `🟠 Usou imagem padrão (${countGeneric})`;
+            select.options[5].text = `🟢 Sucesso (${countSuccess})`;
+        }
         
         const badge = document.getElementById('review-badge');
-        badge.innerText = alertCount;
-        badge.style.display = alertCount > 0 ? 'inline-block' : 'none';
-        if(alertCount > 0) badge.style.backgroundColor = 'var(--danger)';
+        badge.innerText = countAlerts;
+        badge.style.display = countAlerts > 0 ? 'inline-block' : 'none';
+        if(countAlerts > 0) badge.style.backgroundColor = 'var(--danger)';
         else badge.style.backgroundColor = 'var(--primary)';
     }
 
-    document.querySelectorAll('.filters .btn').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            document.querySelectorAll('.filters .btn').forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active');
-            renderReviewGrid(e.target.dataset.filter);
-        });
+    document.getElementById('review-filter-select')?.addEventListener('change', (e) => {
+        renderReviewGrid(e.target.value);
+    });
+
+    // Edit Name Modal Logic
+    window.openEditNameModal = (index) => {
+        const result = generatedResults[index];
+        const row = result.rowData;
+        
+        document.getElementById('edit-name-original').innerText = row.itemName || '';
+        document.getElementById('edit-name-input').value = row.itemName || '';
+        
+        const modal = document.getElementById('edit-name-modal');
+        modal.dataset.activeIndex = index;
+        modal.classList.add('active');
+    };
+
+    document.getElementById('edit-name-modal-close').addEventListener('click', () => {
+        document.getElementById('edit-name-modal').classList.remove('active');
+    });
+
+    document.getElementById('btn-save-name-edit').addEventListener('click', async () => {
+        const modal = document.getElementById('edit-name-modal');
+        const index = modal.dataset.activeIndex;
+        if (index === undefined) return;
+
+        const result = generatedResults[index];
+        const row = result.rowData;
+        
+        const newName = document.getElementById('edit-name-input').value.trim();
+        if (!newName) return showToast('Aviso', 'O nome não pode ficar vazio.', 'error');
+
+        const btn = document.getElementById('btn-save-name-edit');
+        btn.disabled = true;
+        btn.innerText = 'Processando...';
+
+        try {
+            row.itemName = newName;
+
+            const selectedTplId = document.getElementById('select-active-template').value;
+            const templates = await window.StorageManager.getTemplates();
+            const activeTpl = templates.find(x => x.id === selectedTplId);
+
+            const feedPromise = activeTpl.feed && activeTpl.feed.objects && activeTpl.feed.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, activeTpl.feed, true) 
+                : Promise.resolve(null);
+            
+            const storyPromise = activeTpl.story && activeTpl.story.objects && activeTpl.story.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, activeTpl.story, false) 
+                : Promise.resolve(null);
+
+            const [fImg, sImg] = await Promise.all([feedPromise, storyPromise]);
+            
+            result.feedDataUrl = fImg;
+            result.storyDataUrl = sImg;
+
+            if (activeCampaignId) {
+                const camp = await window.StorageManager.getCampaign(activeCampaignId);
+                if(camp) {
+                    camp.results = generatedResults;
+                    await window.StorageManager.saveCampaign(camp);
+                }
+            }
+
+            modal.classList.remove('active');
+            renderReviewGrid(document.getElementById('review-filter-select').value);
+            
+        } catch (e) {
+            console.error(e);
+            showToast('Erro', e.message || 'Erro ao recriar a arte.', 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="ph ph-check"></i> Salvar e Regerar';
+        }
     });
 
     // Corrections Modal Logic
@@ -696,7 +793,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
 
             modal.classList.remove('active');
-            renderReviewGrid(document.querySelector('.filters .btn.active').dataset.filter);
+            renderReviewGrid(document.getElementById('review-filter-select').value);
             
         } catch (e) {
             console.error(e);
