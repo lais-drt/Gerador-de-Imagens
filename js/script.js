@@ -241,7 +241,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         const templates = await window.StorageManager.getTemplates();
         const t = templates.find(x => x.id === id);
         if (t) {
-            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(t));
+            // Strip out variant keys to export only normal Feed and Story templates
+            const exportObj = {
+                id: t.id,
+                name: t.name,
+                feed: t.feed,
+                story: t.story
+            };
+            const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportObj));
             const downloadAnchorNode = document.createElement('a');
             downloadAnchorNode.setAttribute("href",     dataStr);
             downloadAnchorNode.setAttribute("download", (t.name || 'template') + ".json");
@@ -305,6 +312,36 @@ document.addEventListener('DOMContentLoaded', async () => {
             const keywords = await window.StorageManager.getKeywords();
             
             parsedData = await window.CsvParser.parse(file, generics, keywords);
+
+            // Analyze the parsed data
+            const total = parsedData.length;
+            const withPhoto = parsedData.filter(row => row.hasOriginalPhoto).length;
+            const withoutPhoto = total - withPhoto;
+            
+            // Update analysis UI
+            document.getElementById('analysis-total').innerText = total;
+            document.getElementById('analysis-with-photo').innerText = withPhoto;
+            document.getElementById('analysis-without-photo').innerText = withoutPhoto;
+            
+            // Show the analysis box
+            document.getElementById('csv-analysis-box').classList.remove('hidden');
+            
+            // Hide or show the variant treatment option depending on whether there are items without photos
+            const variantOption = document.getElementById('treatment-variant-option');
+            if (withoutPhoto === 0) {
+                // If there are no items without photos, default to 'default-image' and disable variant choice
+                document.querySelector('input[name="no-photo-treatment"][value="default-image"]').checked = true;
+                if (variantOption) {
+                    variantOption.style.opacity = '0.5';
+                    variantOption.style.pointerEvents = 'none';
+                }
+            } else {
+                if (variantOption) {
+                    variantOption.style.opacity = '1';
+                    variantOption.style.pointerEvents = 'auto';
+                }
+            }
+
             btnProcess.disabled = false;
             btnProcess.innerText = `Processar ${parsedData.length} parceiros`;
             document.querySelector('#csv-dropzone h3').innerText = file.name;
@@ -325,45 +362,95 @@ document.addEventListener('DOMContentLoaded', async () => {
         const templates = await window.StorageManager.getTemplates();
         const activeTpl = templates.find(x => x.id === selectedTplId);
 
+        // Read treatment selection
+        const treatment = document.querySelector('input[name="no-photo-treatment"]:checked').value; // 'default-image' | 'no-image-template'
+
+        const hasFeedNoImgVariant = activeTpl.feed_no_image && activeTpl.feed_no_image.bg;
+        const hasStoryNoImgVariant = activeTpl.story_no_image && activeTpl.story_no_image.bg;
+
+        if (treatment === 'no-image-template' && (!hasFeedNoImgVariant || !hasStoryNoImgVariant)) {
+            showToast('Aviso', 'O template selecionado não possui variantes "sem foto" completas. O sistema utilizará a imagem padrão/genérica como fallback nos layouts ausentes.', 'warning');
+        }
+
+        // Apply treatment preprocessing
+        if (treatment === 'no-image-template') {
+            parsedData.forEach(row => {
+                if (!row.hasOriginalPhoto) {
+                    row.itemImage = '';
+                    row.usedGeneric = false;
+                    row.alert = null;
+                }
+            });
+        }
+
         btnProcess.disabled = true;
         statusBox.classList.remove('hidden');
         generatedResults = [];
         
-        const total = parsedData.length;
-        
-        for (let i = 0; i < total; i++) {
-            const row = parsedData[i];
-            statusText.innerText = `Gerando ${i+1} de ${total}: ${row.partnerName}...`;
-            progressFill.style.width = `${((i) / total) * 100}%`;
+        // Group parsedData by cityName
+        const groupedByCity = {};
+        parsedData.forEach(row => {
+            const city = row.cityName || 'Sem Cidade';
+            if (!groupedByCity[city]) groupedByCity[city] = [];
+            groupedByCity[city].push(row);
+        });
 
-            try {
-                const feedUrl = await window.CanvasRenderer.generateImage(row, activeTpl.feed, true);
-                const storyUrl = await window.CanvasRenderer.generateImage(row, activeTpl.story, false);
+        const cities = Object.keys(groupedByCity);
+        let currentTotalProcessed = 0;
+        const totalItems = parsedData.length;
+
+        for (let city of cities) {
+            const cityRows = groupedByCity[city];
+            const cityTotal = cityRows.length;
+            
+            for (let i = 0; i < cityTotal; i++) {
+                const row = cityRows[i];
+                currentTotalProcessed++;
                 
-                generatedResults.push({
-                    rowData: row,
-                    feedDataUrl: feedUrl,
-                    storyDataUrl: storyUrl
-                });
-            } catch (err) {
-                console.error('Erro ao gerar imagem para', row, err);
-                row.alert = row.alert ? row.alert + " | " + err : String(err);
-                generatedResults.push({
-                    rowData: row,
-                    feedDataUrl: null,
-                    storyDataUrl: null
-                });
+                statusText.innerText = `Processando: [${city}] - ${i+1}/${cityTotal} artes (${row.partnerName})...`;
+                progressFill.style.width = `${((currentTotalProcessed - 1) / totalItems) * 100}%`;
+
+                try {
+                    const useFeedNoImg = (treatment === 'no-image-template' && !row.hasOriginalPhoto && hasFeedNoImgVariant);
+                    const useStoryNoImg = (treatment === 'no-image-template' && !row.hasOriginalPhoto && hasStoryNoImgVariant);
+                    
+                    const feedTplFormat = useFeedNoImg ? activeTpl.feed_no_image : activeTpl.feed;
+                    const storyTplFormat = useStoryNoImg ? activeTpl.story_no_image : activeTpl.story;
+
+                    const feedUrl = await window.CanvasRenderer.generateImage(row, feedTplFormat, true);
+                    const storyUrl = await window.CanvasRenderer.generateImage(row, storyTplFormat, false);
+                    
+                    generatedResults.push({
+                        rowData: row,
+                        feedDataUrl: feedUrl,
+                        storyDataUrl: storyUrl
+                    });
+                } catch (err) {
+                    console.error('Erro ao gerar imagem para', row, err);
+                    row.alert = row.alert ? row.alert + " | " + err : String(err);
+                    generatedResults.push({
+                        rowData: row,
+                        feedDataUrl: null,
+                        storyDataUrl: null
+                    });
+                }
             }
         }
 
         progressFill.style.width = '100%';
         statusText.innerText = 'Geração concluída! Salvando campanha...';
 
+        // Clear rendering cache and revoke blob URLs to free memory
+        if (window.CanvasRenderer && typeof window.CanvasRenderer.clearCache === 'function') {
+            window.CanvasRenderer.clearCache();
+        }
+
         const newCampaign = await window.StorageManager.saveCampaign({
             name: campaignName,
             templateId: selectedTplId,
             results: generatedResults,
-            parsedData: parsedData
+            parsedData: parsedData,
+            noPhotoTreatment: treatment // Store selection!
         });
         
         activeCampaignId = newCampaign.id;
@@ -585,6 +672,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             delete row.alert; 
             row.usedGeneric = !!catId; 
+            row.hasOriginalPhoto = true; 
 
             const feedPromise = activeTpl.feed && activeTpl.feed.objects && activeTpl.feed.objects.length > 0 
                 ? window.CanvasRenderer.generateImage(row, activeTpl.feed, true) 
@@ -639,14 +727,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         generatedResults.forEach(res => {
             if (res.rowData.alert && !res.feedDataUrl) return; 
             
-            const safePartnerName = res.rowData.partnerName.replace(/[^a-z0-9_-]/gi, '_');
-            const partnerFolder = rootFolder.folder(safePartnerName);
+            const cityName = res.rowData.cityName || 'Sem Cidade';
+            const safeCityName = cityName.replace(/[^a-zA-Z0-9À-ÿ _-]/gi, '_').trim();
+            const safePartnerName = res.rowData.partnerName.replace(/[^a-zA-Z0-9À-ÿ _-]/gi, '_').trim();
+            
+            const cityFolder = rootFolder.folder(safeCityName);
+            const partnerFolder = cityFolder.folder(safePartnerName);
 
-            if (!partnerCounts[safePartnerName]) {
-                partnerCounts[safePartnerName] = 0;
+            const partnerKey = `${safeCityName}/${safePartnerName}`;
+            if (!partnerCounts[partnerKey]) {
+                partnerCounts[partnerKey] = 0;
             }
-            partnerCounts[safePartnerName]++;
-            const suffix = partnerCounts[safePartnerName] > 1 ? `_${partnerCounts[safePartnerName]}` : '';
+            partnerCounts[partnerKey]++;
+            const suffix = partnerCounts[partnerKey] > 1 ? `_${partnerCounts[partnerKey]}` : '';
 
             if (res.feedDataUrl) {
                 const feedBase64 = res.feedDataUrl.split(',')[1];
@@ -882,6 +975,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if(itemPreview.dataset.base64) {
             row.itemImage = itemPreview.dataset.base64;
             row.item_imagem = itemPreview.dataset.base64;
+            row.hasOriginalPhoto = true; // Mark as having photo
         }
         
         const logoPreview = document.getElementById('edit-logo-preview');
@@ -903,12 +997,24 @@ document.addEventListener('DOMContentLoaded', async () => {
             const templates = await window.StorageManager.getTemplates();
             const activeTpl = templates.find(x => x.id === activeCampaign.templateId);
 
-            const feedPromise = activeTpl.feed && activeTpl.feed.objects && activeTpl.feed.objects.length > 0 
-                ? window.CanvasRenderer.generateImage(row, activeTpl.feed, true) 
+            const treatment = activeCampaign.noPhotoTreatment || 'default-image';
+            const rowHasPhoto = !!row.itemImage;
+
+            const hasFeedNoImgVariant = activeTpl.feed_no_image && activeTpl.feed_no_image.bg;
+            const hasStoryNoImgVariant = activeTpl.story_no_image && activeTpl.story_no_image.bg;
+
+            const useFeedNoImg = (treatment === 'no-image-template' && !rowHasPhoto && hasFeedNoImgVariant);
+            const useStoryNoImg = (treatment === 'no-image-template' && !rowHasPhoto && hasStoryNoImgVariant);
+
+            const feedTplFormat = useFeedNoImg ? activeTpl.feed_no_image : activeTpl.feed;
+            const storyTplFormat = useStoryNoImg ? activeTpl.story_no_image : activeTpl.story;
+
+            const feedPromise = feedTplFormat && feedTplFormat.objects && feedTplFormat.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, feedTplFormat, true) 
                 : Promise.resolve(null);
             
-            const storyPromise = activeTpl.story && activeTpl.story.objects && activeTpl.story.objects.length > 0 
-                ? window.CanvasRenderer.generateImage(row, activeTpl.story, false) 
+            const storyPromise = storyTplFormat && storyTplFormat.objects && storyTplFormat.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, storyTplFormat, false) 
                 : Promise.resolve(null);
 
             const [fImg, sImg] = await Promise.all([feedPromise, storyPromise]);

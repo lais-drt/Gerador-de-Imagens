@@ -6,7 +6,9 @@ const Editor = {
     templateData: {
         name: '',
         feed: { bg: null, bgDimensions: null, objects: [] },
-        story: { bg: null, bgDimensions: null, objects: [] }
+        story: { bg: null, bgDimensions: null, objects: [] },
+        feed_no_image: { bg: null, bgDimensions: null, objects: [] },
+        story_no_image: { bg: null, bgDimensions: null, objects: [] }
     },
 
     undoStack: [],
@@ -336,19 +338,41 @@ const Editor = {
 
 
 
-        document.getElementById('btn-switch-feed').addEventListener('click', () => {
-            document.getElementById('btn-switch-feed').classList.add('active');
-            document.getElementById('btn-switch-story').classList.remove('active');
-            document.getElementById('bg-format-lbl').innerText = 'Feed';
-            document.getElementById('story-clone-area').classList.add('hidden');
-            this.switchFormat('feed');
-        });
-        document.getElementById('btn-switch-story').addEventListener('click', () => {
-            document.getElementById('btn-switch-story').classList.add('active');
-            document.getElementById('btn-switch-feed').classList.remove('active');
-            document.getElementById('bg-format-lbl').innerText = 'Story';
-            document.getElementById('story-clone-area').classList.remove('hidden');
-            this.switchFormat('story');
+        const formats = [
+            { id: 'btn-switch-feed', name: 'feed', label: 'Feed Normal', hasClone: false },
+            { id: 'btn-switch-story', name: 'story', label: 'Story Normal', hasClone: true, cloneFrom: 'feed' },
+            { id: 'btn-switch-feed-no-image', name: 'btn-switch-feed-no-image', realName: 'feed_no_image', label: 'Feed Sem Foto', hasClone: false },
+            { id: 'btn-switch-story-no-image', name: 'btn-switch-story-no-image', realName: 'story_no_image', label: 'Story Sem Foto', hasClone: true, cloneFrom: 'feed_no_image' }
+        ];
+
+        formats.forEach(fmt => {
+            const el = document.getElementById(fmt.id);
+            if (el) {
+                el.addEventListener('click', () => {
+                    formats.forEach(f => {
+                        const btn = document.getElementById(f.id);
+                        if (btn) btn.classList.toggle('active', f.id === fmt.id);
+                    });
+                    
+                    document.getElementById('bg-format-lbl').innerText = fmt.label;
+                    
+                    const cloneArea = document.getElementById('story-clone-area');
+                    const cloneBtn = document.getElementById('btn-clone-feed');
+                    
+                    const formatName = fmt.realName || fmt.name;
+                    
+                    if (cloneArea) {
+                        cloneArea.classList.toggle('hidden', !fmt.hasClone);
+                        if (fmt.hasClone) {
+                            cloneBtn.innerText = `Clonar Elementos do ${fmt.cloneFrom === 'feed' ? 'Feed Normal' : 'Feed Sem Foto'}`;
+                            cloneBtn.dataset.cloneFrom = fmt.cloneFrom;
+                            cloneBtn.disabled = !this.templateData[fmt.cloneFrom].bgDimensions;
+                        }
+                    }
+                    
+                    this.switchFormat(formatName);
+                });
+            }
         });
 
         document.getElementById('bg-upload').addEventListener('change', (e) => {
@@ -362,22 +386,25 @@ const Editor = {
             reader.readAsDataURL(file);
         });
 
-        // Clone Elements Feed -> Story
+        // Clone Elements Feed -> Story (support both Normal and Sem Foto)
         document.getElementById('btn-clone-feed').addEventListener('click', () => {
-            const feedData = this.templateData.feed;
-            if (!feedData || !feedData.objects || feedData.objects.length === 0) return;
+            const cloneFrom = document.getElementById('btn-clone-feed').dataset.cloneFrom || 'feed';
+            const fromData = this.templateData[cloneFrom];
+            if (!fromData || !fromData.objects || fromData.objects.length === 0) return;
             
-            const bgDimFeed = feedData.bgDimensions;
-            const bgDimStory = this.templateData.story.bgDimensions;
+            const bgDimFrom = fromData.bgDimensions;
+            const bgDimTo = this.templateData[this.currentFormat].bgDimensions;
 
-            if (!bgDimFeed || !bgDimStory) {
-                return showToast('Aviso', "Para clonar, é necessário que tanto o Feed quanto o Story tenham imagens de fundo anexadas para calcular as posições.", 'error');
+            if (!bgDimFrom || !bgDimTo) {
+                const fromLabel = cloneFrom === 'feed' ? 'Feed Normal' : 'Feed Sem Foto';
+                const toLabel = this.currentFormat === 'story' ? 'Story Normal' : 'Story Sem Foto';
+                return showToast('Aviso', `Para clonar, é necessário que tanto o ${fromLabel} quanto o ${toLabel} tenham imagens de fundo anexadas para calcular as posições.`, 'error');
             }
             
-            const scaleRatio = bgDimStory.w / bgDimFeed.w; 
-            const yOffset = (bgDimStory.h - (bgDimFeed.h * scaleRatio)) / 2;
+            const scaleRatio = bgDimTo.w / bgDimFrom.w; 
+            const yOffset = (bgDimTo.h - (bgDimFrom.h * scaleRatio)) / 2;
             
-            const clonedObjects = feedData.objects.map(obj => {
+            const clonedObjects = fromData.objects.map(obj => {
                 if (obj.isBgImage) return null; 
                 const newObj = JSON.parse(JSON.stringify(obj));
                 newObj.left *= scaleRatio;
@@ -388,10 +415,10 @@ const Editor = {
             }).filter(x => x !== null);
             
             // Keep current Story BG
-            const objsToKeep = this.templateData.story.objects.filter(o => o.isBgImage);
-            this.templateData.story.objects = objsToKeep.concat(clonedObjects);
+            const objsToKeep = this.templateData[this.currentFormat].objects.filter(o => o.isBgImage);
+            this.templateData[this.currentFormat].objects = objsToKeep.concat(clonedObjects);
             
-            this.loadFormatState('story');
+            this.loadFormatState(this.currentFormat);
         });
     },
 
@@ -635,11 +662,15 @@ const Editor = {
         
         const safeFeed = templateObj.feed || { bg: null, objects: [] };
         const safeStory = templateObj.story || { bg: null, objects: [] };
+        const safeFeedNoImg = templateObj.feed_no_image || (templateObj.variants && templateObj.variants.feed_no_image) || { bg: null, objects: [] };
+        const safeStoryNoImg = templateObj.story_no_image || (templateObj.variants && templateObj.variants.story_no_image) || { bg: null, objects: [] };
 
         this.templateData = {
             name: templateObj.name,
             feed: safeFeed,
-            story: safeStory
+            story: safeStory,
+            feed_no_image: safeFeedNoImg,
+            story_no_image: safeStoryNoImg
         };
         
         document.getElementById('btn-switch-feed').click();
@@ -651,7 +682,15 @@ const Editor = {
             id: this.currentTemplateId,
             name: document.getElementById('tpl-name').value || 'Template Sem Nome',
             feed: this.templateData.feed,
-            story: this.templateData.story
+            story: this.templateData.story,
+            feed_no_image: this.templateData.feed_no_image,
+            story_no_image: this.templateData.story_no_image,
+            variants: {
+                feed_normal: this.templateData.feed,
+                feed_no_image: this.templateData.feed_no_image,
+                story_normal: this.templateData.story,
+                story_no_image: this.templateData.story_no_image
+            }
         };
     }
 };

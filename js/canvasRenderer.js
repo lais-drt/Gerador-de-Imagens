@@ -113,7 +113,16 @@ const CanvasRenderer = {
 
             canvas.backgroundColor = '#ffffff';
 
-            this.loadObjects(canvas, templateConfigFormat.objects, dataRow, scaleMultiplier, resolve, reject);
+            this.loadObjects(canvas, templateConfigFormat.objects, dataRow, scaleMultiplier, 
+                (result) => {
+                    canvas.dispose(); // Clean up memory by disposing canvas
+                    resolve(result);
+                }, 
+                (err) => {
+                    canvas.dispose(); // Clean up memory by disposing canvas
+                    reject(err);
+                }
+            );
         });
     },
 
@@ -227,6 +236,20 @@ const CanvasRenderer = {
             const dataUrl = canvas.toDataURL({ format: 'png', quality: 1 });
             resolve(dataUrl);
         });
+    },
+
+    clearCache() {
+        for (let [url, objectUrl] of this.imageCache.entries()) {
+            if (objectUrl && objectUrl.startsWith('blob:')) {
+                try {
+                    URL.revokeObjectURL(objectUrl);
+                } catch (e) {
+                    console.warn("Failed to revoke object URL:", objectUrl, e);
+                }
+            }
+        }
+        this.imageCache.clear();
+        console.log("[CanvasRenderer] Cache cleared and object URLs revoked.");
     }
 };
 

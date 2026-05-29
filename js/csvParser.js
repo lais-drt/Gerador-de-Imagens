@@ -55,7 +55,10 @@ const CsvParser = {
                     const data = results.data.map(row => {
                         let alertMsg = null;
                         
-                        let itemImageUrl = (row.item_imagem && row.item_imagem !== 'NULL') ? row.item_imagem.trim() : '';
+                        let originalItemImg = (row.item_imagem && row.item_imagem !== 'NULL') ? row.item_imagem.trim() : '';
+                        let hasOriginalPhoto = !!originalItemImg;
+                        
+                        let itemImageUrl = originalItemImg;
                         let logoImageUrl = (row.estabelecimento_imagem && row.estabelecimento_imagem !== 'NULL') ? row.estabelecimento_imagem.trim() : '';
                         
                         let usedGeneric = false;
@@ -70,6 +73,10 @@ const CsvParser = {
                             }
                         }
 
+                        // Extract city name with fallback checks
+                        let rawCity = row.cidade_nome || row.cidade || row.cidade_parceiro;
+                        let cityName = (rawCity && rawCity !== 'NULL') ? String(rawCity).trim() : 'Sem Cidade';
+
                         return {
                             id: row.item_catalogo_id || Math.random().toString(36).substr(2, 9),
                             partnerName: (row.estabelecimento_nome && row.estabelecimento_nome !== 'NULL') ? row.estabelecimento_nome : 'Parceiro',
@@ -80,7 +87,9 @@ const CsvParser = {
                             itemImage: itemImageUrl,
                             logoImage: logoImageUrl,
                             usedGeneric,
-                            alert: alertMsg
+                            alert: alertMsg,
+                            hasOriginalPhoto,
+                            cityName
                         };
                     });
                     resolve(data);
