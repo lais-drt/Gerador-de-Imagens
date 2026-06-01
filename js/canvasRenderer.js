@@ -233,8 +233,9 @@ const CanvasRenderer = {
             await Promise.all(promises);
             canvas.renderAll();
             
-            const dataUrl = canvas.toDataURL({ format: 'png', quality: 1 });
-            resolve(dataUrl);
+            const fullDataUrl = canvas.toDataURL({ format: 'png', quality: 1 });
+            const thumbDataUrl = canvas.toDataURL({ format: 'jpeg', quality: 0.6, multiplier: 0.2 });
+            resolve({ full: fullDataUrl, thumb: thumbDataUrl });
         });
     },
 

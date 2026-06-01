@@ -54,6 +54,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const tabContents = document.querySelectorAll('.tab-content');
 
     function switchTab(tabId) {
+        if (tabId !== 'tab-review' && tabId !== 'tab-campaign-editor') {
+            if (window.CanvasRenderer && typeof window.CanvasRenderer.clearCache === 'function') {
+                window.CanvasRenderer.clearCache();
+            }
+        }
+        
         navItems.forEach(item => {
             if (item.dataset.tab === tabId) item.classList.add('active');
             else item.classList.remove('active');
@@ -417,13 +423,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                     const feedTplFormat = useFeedNoImg ? activeTpl.feed_no_image : activeTpl.feed;
                     const storyTplFormat = useStoryNoImg ? activeTpl.story_no_image : activeTpl.story;
 
-                    const feedUrl = await window.CanvasRenderer.generateImage(row, feedTplFormat, true);
-                    const storyUrl = await window.CanvasRenderer.generateImage(row, storyTplFormat, false);
+                    const feedRes = await window.CanvasRenderer.generateImage(row, feedTplFormat, true);
+                    const storyRes = await window.CanvasRenderer.generateImage(row, storyTplFormat, false);
                     
                     generatedResults.push({
                         rowData: row,
-                        feedDataUrl: feedUrl,
-                        storyDataUrl: storyUrl
+                        feedDataUrl: feedRes ? feedRes.full : null,
+                        storyDataUrl: storyRes ? storyRes.full : null,
+                        feedThumbUrl: feedRes ? feedRes.thumb : null,
+                        storyThumbUrl: storyRes ? storyRes.thumb : null
                     });
                 } catch (err) {
                     console.error('Erro ao gerar imagem para', row, err);
@@ -466,10 +474,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         setTimeout(() => switchTab('tab-review'), 1000);
     });
 
-    function renderReviewGrid(filter = 'all') {
-        const grid = document.getElementById('review-grid');
-        grid.innerHTML = '';
-        
+    let reviewStats = null;
+    let currentReviewFilter = 'all';
+    let reviewItemsToRender = [];
+    let reviewCurrentPage = 0;
+    const ITEMS_PER_PAGE = 20;
+
+    function calculateReviewStats() {
         let countAll = generatedResults.length;
         let countAlerts = 0;
         let countError = 0;
@@ -481,7 +492,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             const row = result.rowData;
             const isError = !!row.alert;
             const sanitizedName = (row.itemName || '').trim().replace(/\s+/g, ' ');
-            const isTextLong = sanitizedName.length >= 32;
+            const isTextLong = sanitizedName.length >= 28;
             const isGeneric = !!row.usedGeneric;
 
             let badgeCls = 'badge-success';
@@ -505,34 +516,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (badgeCls === 'badge-info') countTextLong++;
             if (badgeCls === 'badge-warning') countGeneric++;
 
-            if (filter === 'success' && badgeCls !== 'badge-success') return;
-            if (filter === 'all-alerts' && badgeCls === 'badge-success') return;
-            if (filter === 'error-img' && badgeCls !== 'badge-danger') return;
-            if (filter === 'alert-text' && badgeCls !== 'badge-info') return;
-            if (filter === 'alert-generic' && badgeCls !== 'badge-warning') return;
-
-            const card = document.createElement('div');
-            card.className = 'review-card';
-
-            const fSrc = result.feedDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
-            const sSrc = result.storyDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
-
-            card.innerHTML = `
-                <span class="review-badge ${badgeCls}">${badgeTxt}</span>
-                <div class="dual-preview">
-                    <img src="${fSrc}" alt="Feed" loading="lazy" onclick="openModal('${fSrc}')">
-                    <img src="${sSrc}" alt="Story" loading="lazy" onclick="openModal('${sSrc}')">
-                </div>
-                <div class="review-info">
-                    <h4>${row.partnerName}</h4>
-                    <p>Item: ${row.itemName || 'Sem nome'}</p>
-                    ${isError ? `<p style="color:var(--danger); font-size: 0.75rem; margin-top:4px;">${row.alert}</p>` : ''}
-                    ${isError ? `<button class="btn btn-sm btn-outline mt-2" style="border-color:var(--danger); color:var(--danger);" onclick="window.openCorrectionModal(${index})">Resolver Pendência</button>` : ''}
-                    ${isTextLong && !isError ? `<button class="btn btn-sm btn-outline mt-2" style="border-color:#3b82f6; color:#3b82f6;" onclick="window.openEditNameModal(${index})">Editar Nome</button>` : ''}
-                </div>
-            `;
-            grid.appendChild(card);
+            result._badgeCls = badgeCls;
+            result._badgeTxt = badgeTxt;
+            result._isError = isError;
+            result._isTextLong = isTextLong;
+            result._originalIndex = index;
         });
+
+        reviewStats = {
+            countAll, countAlerts, countError, countTextLong, countGeneric, countSuccess
+        };
 
         const select = document.getElementById('review-filter-select');
         if (select) {
@@ -545,14 +538,130 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
         
         const badge = document.getElementById('review-badge');
-        badge.innerText = countAlerts;
-        badge.style.display = countAlerts > 0 ? 'inline-block' : 'none';
-        if(countAlerts > 0) badge.style.backgroundColor = 'var(--danger)';
-        else badge.style.backgroundColor = 'var(--primary)';
+        if (badge) {
+            badge.innerText = countAlerts;
+            badge.style.display = countAlerts > 0 ? 'inline-block' : 'none';
+            if(countAlerts > 0) badge.style.backgroundColor = 'var(--danger)';
+            else badge.style.backgroundColor = 'var(--primary)';
+        }
+    }
+
+    function initReviewGrid(filter = 'all') {
+        currentReviewFilter = filter;
+        reviewCurrentPage = 0;
+        
+        if (!reviewStats) calculateReviewStats();
+
+        reviewItemsToRender = generatedResults.filter(result => {
+            const badgeCls = result._badgeCls;
+            if (filter === 'success' && badgeCls !== 'badge-success') return false;
+            if (filter === 'all-alerts' && badgeCls === 'badge-success') return false;
+            if (filter === 'error-img' && badgeCls !== 'badge-danger') return false;
+            if (filter === 'alert-text' && badgeCls !== 'badge-info') return false;
+            if (filter === 'alert-generic' && badgeCls !== 'badge-warning') return false;
+            return true;
+        });
+
+        const grid = document.getElementById('review-grid');
+        if (!grid) return;
+        grid.innerHTML = '';
+        
+        if (window._reviewObserver) {
+            window._reviewObserver.disconnect();
+        }
+
+        renderNextReviewBatch();
+    }
+
+    function renderNextReviewBatch() {
+        const grid = document.getElementById('review-grid');
+        if (!grid) return;
+        const start = reviewCurrentPage * ITEMS_PER_PAGE;
+        const end = Math.min(start + ITEMS_PER_PAGE, reviewItemsToRender.length);
+        
+        if (start >= reviewItemsToRender.length) return;
+
+        for (let i = start; i < end; i++) {
+            const result = reviewItemsToRender[i];
+            const card = generateReviewCardHtml(result, result._originalIndex);
+            grid.appendChild(card);
+        }
+
+        reviewCurrentPage++;
+        
+        if (end < reviewItemsToRender.length) {
+            let observerTarget = document.getElementById('review-load-more');
+            if (!observerTarget) {
+                observerTarget = document.createElement('div');
+                observerTarget.id = 'review-load-more';
+                observerTarget.style.gridColumn = '1 / -1';
+                observerTarget.style.height = '20px';
+                grid.appendChild(observerTarget);
+                
+                window._reviewObserver = new IntersectionObserver((entries) => {
+                    if (entries[0].isIntersecting) {
+                        renderNextReviewBatch();
+                    }
+                }, { rootMargin: '400px' });
+                window._reviewObserver.observe(observerTarget);
+            } else {
+                grid.appendChild(observerTarget);
+            }
+        } else {
+            const observerTarget = document.getElementById('review-load-more');
+            if (observerTarget) observerTarget.remove();
+        }
+    }
+
+    function generateReviewCardHtml(result, index) {
+        const row = result.rowData;
+        const badgeCls = result._badgeCls;
+        const badgeTxt = result._badgeTxt;
+        const isError = result._isError;
+        const isTextLong = result._isTextLong;
+
+        const card = document.createElement('div');
+        card.className = 'review-card';
+        card.id = `review-card-${index}`;
+
+        const fSrcFull = result.feedDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
+        const sSrcFull = result.storyDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
+        const fSrcThumb = result.feedThumbUrl || fSrcFull; 
+        const sSrcThumb = result.storyThumbUrl || sSrcFull; 
+
+        card.innerHTML = `
+            <span class="review-badge ${badgeCls}">${badgeTxt}</span>
+            <div class="dual-preview">
+                <img src="${fSrcThumb}" alt="Feed" loading="lazy" onclick="openModal('${fSrcFull}')">
+                <img src="${sSrcThumb}" alt="Story" loading="lazy" onclick="openModal('${sSrcFull}')">
+            </div>
+            <div class="review-info">
+                <h4>${row.partnerName}</h4>
+                <p>Item: ${row.itemName || 'Sem nome'}</p>
+                ${isError ? `<p style="color:var(--danger); font-size: 0.75rem; margin-top:4px;">${row.alert}</p>` : ''}
+                ${isError ? `<button class="btn btn-sm btn-outline mt-2" style="border-color:var(--danger); color:var(--danger);" onclick="window.openCorrectionModal(${index})">Resolver Pendência</button>` : ''}
+                ${isTextLong && !isError ? `<button class="btn btn-sm btn-outline mt-2" style="border-color:#3b82f6; color:#3b82f6;" onclick="window.openEditNameModal(${index})">Editar Nome</button>` : ''}
+            </div>
+        `;
+        return card;
+    }
+
+    window.updateSingleReviewCard = (index) => {
+        calculateReviewStats(); // Recalculate stats since this item changed
+        const cardNode = document.getElementById(`review-card-${index}`);
+        if (cardNode) {
+            const newCard = generateReviewCardHtml(generatedResults[index], index);
+            cardNode.replaceWith(newCard);
+        }
+    };
+
+    function renderReviewGrid(filter = 'all') {
+        reviewStats = null; // force recalculate on explicit render
+        initReviewGrid(filter);
     }
 
     document.getElementById('review-filter-select')?.addEventListener('change', (e) => {
-        renderReviewGrid(e.target.value);
+        initReviewGrid(e.target.value);
     });
 
     // Edit Name Modal Logic
@@ -594,18 +703,32 @@ document.addEventListener('DOMContentLoaded', async () => {
             const templates = await window.StorageManager.getTemplates();
             const activeTpl = templates.find(x => x.id === selectedTplId);
 
-            const feedPromise = activeTpl.feed && activeTpl.feed.objects && activeTpl.feed.objects.length > 0 
-                ? window.CanvasRenderer.generateImage(row, activeTpl.feed, true) 
+            let treatment = 'default-image';
+            if (activeCampaignId) {
+                const camp = await window.StorageManager.getCampaign(activeCampaignId);
+                if (camp) treatment = camp.noPhotoTreatment || 'default-image';
+            }
+
+            const useFeedNoImg = (treatment === 'no-image-template' && !row.hasOriginalPhoto && activeTpl.feed_no_image && activeTpl.feed_no_image.bg);
+            const useStoryNoImg = (treatment === 'no-image-template' && !row.hasOriginalPhoto && activeTpl.story_no_image && activeTpl.story_no_image.bg);
+
+            const feedTplFormat = useFeedNoImg ? activeTpl.feed_no_image : activeTpl.feed;
+            const storyTplFormat = useStoryNoImg ? activeTpl.story_no_image : activeTpl.story;
+
+            const feedPromise = feedTplFormat && feedTplFormat.objects && feedTplFormat.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, feedTplFormat, true) 
                 : Promise.resolve(null);
             
-            const storyPromise = activeTpl.story && activeTpl.story.objects && activeTpl.story.objects.length > 0 
-                ? window.CanvasRenderer.generateImage(row, activeTpl.story, false) 
+            const storyPromise = storyTplFormat && storyTplFormat.objects && storyTplFormat.objects.length > 0 
+                ? window.CanvasRenderer.generateImage(row, storyTplFormat, false) 
                 : Promise.resolve(null);
 
             const [fImg, sImg] = await Promise.all([feedPromise, storyPromise]);
             
-            result.feedDataUrl = fImg;
-            result.storyDataUrl = sImg;
+            result.feedDataUrl = fImg ? fImg.full : null;
+            result.storyDataUrl = sImg ? sImg.full : null;
+            result.feedThumbUrl = fImg ? fImg.thumb : null;
+            result.storyThumbUrl = sImg ? sImg.thumb : null;
 
             if (activeCampaignId) {
                 const camp = await window.StorageManager.getCampaign(activeCampaignId);
@@ -781,8 +904,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const [fImg, sImg] = await Promise.all([feedPromise, storyPromise]);
             
-            result.feedDataUrl = fImg;
-            result.storyDataUrl = sImg;
+            result.feedDataUrl = fImg ? fImg.full : null;
+            result.storyDataUrl = sImg ? sImg.full : null;
+            result.feedThumbUrl = fImg ? fImg.thumb : null;
+            result.storyThumbUrl = sImg ? sImg.thumb : null;
 
             if (activeCampaignId) {
                 const camp = await window.StorageManager.getCampaign(activeCampaignId);
@@ -922,7 +1047,13 @@ document.addEventListener('DOMContentLoaded', async () => {
             
             // Switch to Campaign Editor Tab
             switchTab('tab-campaign-editor');
-            renderEditorGrid();
+
+            const grid = document.getElementById('editor-grid');
+            if (grid) grid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; padding: 40px; color: var(--text-muted);"><i class="ph ph-spinner ph-spin" style="font-size: 2rem;"></i><p style="margin-top: 10px;">Carregando artes...</p></div>';
+
+            setTimeout(() => {
+                renderEditorGrid();
+            }, 50);
         }
     };
 
@@ -945,6 +1076,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const card = document.createElement('div');
             card.className = 'review-card';
+            card.id = `editor-card-${index}`;
 
             const badgeCls = isEdited ? 'badge-alert' : 'badge-success'; // Using alert color (yellow) for edited
             const badgeTxt = isEdited ? 'Editada Manualmente' : 'Original';
@@ -952,14 +1084,16 @@ document.addEventListener('DOMContentLoaded', async () => {
             // Optional: Hide badge if not edited for cleaner UI? Let's show "Original" as success.
             const badgeHtml = `<span class="review-badge ${badgeCls}" style="${isEdited ? 'background-color: var(--warning); color: #fff;' : ''}">${badgeTxt}</span>`;
 
-            const fSrc = result.feedDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
-            const sSrc = result.storyDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
+            const fSrcFull = result.feedDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
+            const sSrcFull = result.storyDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'; 
+            const fSrcThumb = result.feedThumbUrl || fSrcFull; 
+            const sSrcThumb = result.storyThumbUrl || sSrcFull; 
 
             card.innerHTML = `
                 ${badgeHtml}
                 <div class="dual-preview">
-                    <img src="${fSrc}" alt="Feed" loading="lazy" onclick="openModal('${fSrc}')">
-                    <img src="${sSrc}" alt="Story" loading="lazy" onclick="openModal('${sSrc}')">
+                    <img src="${fSrcThumb}" alt="Feed" loading="lazy" onclick="openModal('${fSrcFull}')">
+                    <img src="${sSrcThumb}" alt="Story" loading="lazy" onclick="openModal('${sSrcFull}')">
                 </div>
                 <div class="review-info">
                     <h4>${row.partnerName}</h4>
@@ -980,6 +1114,35 @@ document.addEventListener('DOMContentLoaded', async () => {
             });
         }
     });
+
+    window.updateSingleEditorCard = (index) => {
+        const card = document.getElementById(`editor-card-${index}`);
+        if (!card) return;
+        const result = generatedResults[index];
+        const row = result.rowData;
+        const isEdited = !!row.isManuallyEdited;
+        const badgeCls = isEdited ? 'badge-alert' : 'badge-success';
+        const badgeTxt = isEdited ? 'Editada Manualmente' : 'Original';
+        const badgeHtml = `<span class="review-badge ${badgeCls}" style="${isEdited ? 'background-color: var(--warning); color: #fff;' : ''}">${badgeTxt}</span>`;
+
+        const fSrcFull = result.feedDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        const sSrcFull = result.storyDataUrl || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+        const fSrcThumb = result.feedThumbUrl || fSrcFull;
+        const sSrcThumb = result.storyThumbUrl || sSrcFull;
+
+        card.innerHTML = `
+            ${badgeHtml}
+            <div class="dual-preview">
+                <img src="${fSrcThumb}" alt="Feed" loading="lazy" onclick="openModal('${fSrcFull}')">
+                <img src="${sSrcThumb}" alt="Story" loading="lazy" onclick="openModal('${sSrcFull}')">
+            </div>
+            <div class="review-info">
+                <h4>${row.partnerName}</h4>
+                <p>Item: ${row.itemName || 'Sem nome'}</p>
+                <button class="btn btn-sm btn-outline mt-2" onclick="window.openManualEditModal(${index})"><i class="ph ph-pencil-simple"></i> Editar Arte</button>
+            </div>
+        `;
+    };
 
     document.getElementById('search-editor').addEventListener('input', (e) => {
         const filter = document.querySelector('#tab-campaign-editor .filters .btn.active').dataset.filter;
@@ -1116,8 +1279,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const [fImg, sImg] = await Promise.all([feedPromise, storyPromise]);
             
-            result.feedDataUrl = fImg;
-            result.storyDataUrl = sImg;
+            result.feedDataUrl = fImg ? fImg.full : null;
+            result.storyDataUrl = sImg ? sImg.full : null;
+            result.feedThumbUrl = fImg ? fImg.thumb : null;
+            result.storyThumbUrl = sImg ? sImg.thumb : null;
 
             // Auto-save
             activeCampaign.results = generatedResults;
@@ -1125,9 +1290,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             modal.classList.remove('active');
             
-            const filter = document.querySelector('#tab-campaign-editor .filters .btn.active').dataset.filter;
-            const query = document.getElementById('search-editor').value;
-            renderEditorGrid(filter, query);
+            window.updateSingleEditorCard(index);
             showToast('Sucesso', 'Arte editada e regerada com sucesso!');
         } catch (e) {
             console.error(e);
@@ -1233,14 +1396,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             const [fImg, sImg] = await Promise.all([feedPromise, storyPromise]);
 
-            singleFeedUrl = fImg;
-            singleStoryUrl = sImg;
+            singleFeedUrl = fImg ? fImg.full : null;
+            singleStoryUrl = sImg ? sImg.full : null;
 
             const feedPreview = document.getElementById('single-feed-preview');
             const storyPreview = document.getElementById('single-story-preview');
 
-            feedPreview.src = fImg || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
-            storyPreview.src = sImg || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+            feedPreview.src = (fImg ? fImg.thumb : null) || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+            storyPreview.src = (sImg ? sImg.thumb : null) || 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
             document.getElementById('single-result-area').classList.remove('hidden');
 
