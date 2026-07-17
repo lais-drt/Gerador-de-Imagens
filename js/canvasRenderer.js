@@ -1,22 +1,32 @@
 const CanvasRenderer = {
     imageCache: new Map(),
 
+    // fabric.Image.fromURL não dispara onerror de forma confiável: numa falha de carregamento
+    // (404, bloqueio de CORS/rede, etc.) ele resolve com uma imagem "fantasma" de width/height 0
+    // em vez de null. Sem essa checagem, o código seguinte tratava isso como sucesso e a foto
+    // desaparecia da arte silenciosamente, sem nenhum alerta na Conferência.
+    loadFabricImage(src, options) {
+        return new Promise((resolve, reject) => {
+            fabric.Image.fromURL(src, (img) => {
+                if (!img || !img.width || !img.height) {
+                    reject(new Error('Imagem carregada vazia ou corrompida'));
+                    return;
+                }
+                resolve(img);
+            }, options);
+        });
+    },
+
     async fetchImageAsBlob(url) {
         if (!url) return null;
         if (this.imageCache.has(url)) {
             const cachedSrc = this.imageCache.get(url);
-            return new Promise((resolve) => {
-                fabric.Image.fromURL(cachedSrc, (img) => resolve(img), { crossOrigin: 'anonymous' });
-            });
+            return this.loadFabricImage(cachedSrc, { crossOrigin: 'anonymous' }).catch(() => null);
         }
 
         if (url.startsWith('data:')) {
             this.imageCache.set(url, url);
-            return new Promise((resolve) => {
-                fabric.Image.fromURL(url, (img) => {
-                    resolve(img);
-                });
-            });
+            return this.loadFabricImage(url).catch(() => null);
         }
 
         const tryFetch = async (targetUrl) => {
@@ -24,14 +34,10 @@ const CanvasRenderer = {
             if (!response.ok) throw new Error('Network response was not ok');
             const blob = await response.blob();
             const objectUrl = URL.createObjectURL(blob);
-            
+
             this.imageCache.set(url, objectUrl);
 
-            return new Promise((resolve) => {
-                fabric.Image.fromURL(objectUrl, (img) => {
-                    resolve(img);
-                });
-            });
+            return await this.loadFabricImage(objectUrl);
         };
 
         try {
@@ -49,12 +55,14 @@ const CanvasRenderer = {
                     return await tryFetch(proxyUrl2);
                 } catch (err) {
                     console.warn("All proxies failed, trying direct img src load...", err);
-                    return new Promise((resolve) => {
+                    try {
                         this.imageCache.set(url, url);
-                        fabric.Image.fromURL(url, (img) => {
-                            resolve(img);
-                        }, { crossOrigin: 'anonymous' });
-                    });
+                        return await this.loadFabricImage(url, { crossOrigin: 'anonymous' });
+                    } catch (finalErr) {
+                        console.warn("Direct img src load also failed:", finalErr);
+                        this.imageCache.delete(url);
+                        return null;
+                    }
                 }
             }
         }
@@ -181,7 +189,7 @@ const CanvasRenderer = {
                     let imgUrl = dataRow[obj.bindKey];
                     if (imgUrl) {
                         const p = this.fetchImageAsBlob(imgUrl).then(fImg => {
-                            if (fImg) {
+                            if (fImg && fImg.width && fImg.height) {
                                 const targetW = obj.width * obj.scaleX;
                                 const targetH = obj.height * obj.scaleY;
                                 
@@ -226,10 +234,12 @@ const CanvasRenderer = {
                                 fImg.set({ clipPath: clipPath });
                                 canvas.add(fImg);
                             } else {
-                                if(!dataRow.alert) dataRow.alert = `Erro ao carregar img: Proxy falhou.`;
+                                if(!dataRow.alert) dataRow.alert = `Não foi possível carregar a imagem de "${obj.bindKey}" (URL inacessível ou bloqueada pela rede/navegador).`;
                             }
                         });
                         promises.push(p);
+                    } else {
+                        if(!dataRow.alert) dataRow.alert = `Campo "${obj.bindKey}" sem valor de imagem para preencher este elemento.`;
                     }
                 } else {
                     canvas.add(obj);
