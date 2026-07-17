@@ -35,21 +35,27 @@ const CanvasRenderer = {
         };
 
         try {
-            const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
-            return await tryFetch(proxyUrl);
-        } catch (e) {
-            console.warn("Codetabs proxy failed, trying corsproxy.io...", e);
+            // First attempt: Direct fetch (works best if API supports CORS or forces download)
+            return await tryFetch(url);
+        } catch (e0) {
+            console.warn("Direct fetch failed, trying proxies...", e0);
             try {
-                const proxyUrl2 = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-                return await tryFetch(proxyUrl2);
-            } catch (err) {
-                console.warn("All proxies failed, trying direct img src load...", err);
-                return new Promise((resolve) => {
-                    this.imageCache.set(url, url);
-                    fabric.Image.fromURL(url, (img) => {
-                        resolve(img);
-                    }, { crossOrigin: 'anonymous' });
-                });
+                const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+                return await tryFetch(proxyUrl);
+            } catch (e) {
+                console.warn("Codetabs proxy failed, trying corsproxy.io...", e);
+                try {
+                    const proxyUrl2 = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+                    return await tryFetch(proxyUrl2);
+                } catch (err) {
+                    console.warn("All proxies failed, trying direct img src load...", err);
+                    return new Promise((resolve) => {
+                        this.imageCache.set(url, url);
+                        fabric.Image.fromURL(url, (img) => {
+                            resolve(img);
+                        }, { crossOrigin: 'anonymous' });
+                    });
+                }
             }
         }
     },
