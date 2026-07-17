@@ -60,6 +60,14 @@ const CsvParser = {
                         
                         let itemImageUrl = originalItemImg;
                         let logoImageUrl = (row.estabelecimento_imagem && row.estabelecimento_imagem !== 'NULL') ? row.estabelecimento_imagem.trim() : '';
+
+                        // Resolver redirecionamento 301 da API para o CDN final para evitar bloqueio de CORS no navegador
+                        if (itemImageUrl) {
+                            itemImageUrl = itemImageUrl.replace('https://api.bigou.com.br/uploads/', 'https://labcinco.nyc3.cdn.digitaloceanspaces.com/bigou/');
+                        }
+                        if (logoImageUrl) {
+                            logoImageUrl = logoImageUrl.replace('https://api.bigou.com.br/uploads/', 'https://labcinco.nyc3.cdn.digitaloceanspaces.com/bigou/');
+                        }
                         
                         let usedGeneric = false;
 
