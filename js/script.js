@@ -453,25 +453,32 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.CanvasRenderer.clearCache();
         }
 
-        const newCampaign = await window.StorageManager.saveCampaign({
-            name: campaignName,
-            templateId: selectedTplId,
-            results: generatedResults,
-            parsedData: parsedData,
-            noPhotoTreatment: treatment // Store selection!
-        });
-        
-        activeCampaignId = newCampaign.id;
-        document.getElementById('review-campaign-name').innerText = `- ${campaignName}`;
-        
-        loadCampaigns();
+        try {
+            const newCampaign = await window.StorageManager.saveCampaign({
+                name: campaignName,
+                templateId: selectedTplId,
+                results: generatedResults,
+                parsedData: parsedData,
+                noPhotoTreatment: treatment // Store selection!
+            });
 
-        statusText.innerText = 'Campanha salva! Vá para a aba de Conferência.';
-        showToast('Sucesso', 'Campanha gerada e salva com sucesso!');
-        
-        document.getElementById('nav-review-btn').disabled = false;
-        renderReviewGrid();
-        setTimeout(() => switchTab('tab-review'), 1000);
+            activeCampaignId = newCampaign.id;
+            document.getElementById('review-campaign-name').innerText = `- ${campaignName}`;
+
+            loadCampaigns();
+
+            statusText.innerText = 'Campanha salva! Vá para a aba de Conferência.';
+            showToast('Sucesso', 'Campanha gerada e salva com sucesso!');
+
+            document.getElementById('nav-review-btn').disabled = false;
+            renderReviewGrid();
+            setTimeout(() => switchTab('tab-review'), 1000);
+        } catch (err) {
+            console.error('Erro ao salvar campanha', err);
+            statusText.innerText = 'Erro ao salvar a campanha. Veja o console para detalhes.';
+            showToast('Erro', 'Não foi possível salvar a campanha: ' + (err && err.message ? err.message : err), 'error');
+            btnProcess.disabled = false;
+        }
     });
 
     let reviewStats = null;

@@ -153,20 +153,46 @@ const StorageManager = {
     },
 
     // --- CAMPAIGNS ---
+    // Results are stored one-per-key (campaignId::r::index) instead of embedded in the
+    // campaign document. A campaign with thousands of full-resolution renders can reach
+    // multiple GB; cloning that as a single IndexedDB value freezes the tab for minutes
+    // (or forever) during structured-clone serialization. Small independent writes avoid
+    // that single giant blocking clone. getCampaign/saveCampaign still accept/return a
+    // plain {..., results: [...]} object so the rest of the app doesn't need to change.
+    resultKey(campaignId, index) {
+        return `${campaignId}::r::${index}`;
+    },
+
+    // Runs an async fn over indices [0, count) BATCH_SIZE-at-a-time, instead of either
+    // one-by-one (slow for thousands of small IndexedDB ops) or all-at-once (spikes memory
+    // and pending-transaction count for very large campaigns). The setTimeout(0) between
+    // batches forces a real macrotask boundary so thousands of chained IndexedDB promise
+    // resolutions can't monopolize the event loop and freeze the tab (input, rendering,
+    // devtools) for the whole duration on very large campaigns.
+    async runBatched(count, batchSize, fn) {
+        const out = new Array(count);
+        for (let i = 0; i < count; i += batchSize) {
+            const end = Math.min(i + batchSize, count);
+            const batch = await Promise.all(Array.from({ length: end - i }, (_, j) => fn(i + j)));
+            for (let j = 0; j < batch.length; j++) out[i + j] = batch[j];
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        return out;
+    },
+
     async getCampaigns() {
         const keys = await this.campaignsDB.keys();
         const campaigns = [];
         for (let k of keys) {
-            // Retrieve only metadata to prevent heavy loading for list view
+            if (k.includes('::')) continue; // skip per-result / parsedData records
             const camp = await this.campaignsDB.getItem(k);
             if (camp) {
-                // omit results array from list for performance, or just return it if memory is not an issue
                 campaigns.push({
                     id: camp.id,
                     name: camp.name,
                     createdAt: camp.createdAt,
                     templateId: camp.templateId,
-                    totalItems: camp.results ? camp.results.length : 0
+                    totalItems: camp.resultsCount != null ? camp.resultsCount : (camp.results ? camp.results.length : 0)
                 });
             }
         }
@@ -174,7 +200,16 @@ const StorageManager = {
     },
 
     async getCampaign(id) {
-        return await this.campaignsDB.getItem(id);
+        const meta = await this.campaignsDB.getItem(id);
+        if (!meta) return null;
+
+        // Legacy campaigns (saved before chunked storage) already embed everything.
+        if (Array.isArray(meta.results)) return meta;
+
+        const count = meta.resultsCount || 0;
+        const results = await this.runBatched(count, 25, i => this.campaignsDB.getItem(this.resultKey(id, i)));
+        const parsedData = await this.campaignsDB.getItem(`${id}::parsedData`) || [];
+        return { ...meta, results, parsedData };
     },
 
     async saveCampaign(campaignObj) {
@@ -182,11 +217,34 @@ const StorageManager = {
             campaignObj.id = 'camp_' + Date.now();
             campaignObj.createdAt = new Date().toISOString();
         }
-        await this.campaignsDB.setItem(campaignObj.id, campaignObj);
-        return campaignObj;
+        const results = campaignObj.results || [];
+
+        // Write each render as its own small record instead of one giant object, in
+        // batches so we don't fire thousands of concurrent IndexedDB transactions at once.
+        await this.runBatched(results.length, 25, i => this.campaignsDB.setItem(this.resultKey(campaignObj.id, i), results[i]));
+
+        await this.campaignsDB.setItem(`${campaignObj.id}::parsedData`, campaignObj.parsedData || []);
+
+        const meta = {
+            id: campaignObj.id,
+            name: campaignObj.name,
+            createdAt: campaignObj.createdAt,
+            templateId: campaignObj.templateId,
+            noPhotoTreatment: campaignObj.noPhotoTreatment,
+            resultsCount: results.length
+        };
+        await this.campaignsDB.setItem(campaignObj.id, meta);
+
+        return { ...meta, results, parsedData: campaignObj.parsedData || [] };
     },
 
     async deleteCampaign(id) {
+        const meta = await this.campaignsDB.getItem(id);
+        if (meta && !Array.isArray(meta.results)) {
+            const count = meta.resultsCount || 0;
+            await this.runBatched(count, 25, i => this.campaignsDB.removeItem(this.resultKey(id, i)));
+            await this.campaignsDB.removeItem(`${id}::parsedData`);
+        }
         await this.campaignsDB.removeItem(id);
     }
 };
